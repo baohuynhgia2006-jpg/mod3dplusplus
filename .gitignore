@@ -9,5 +9,7 @@ buid/
 !debug.log
 
 # OS generated files
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
