@@ -1,5 +1,6 @@
 # Build directories
-buid/
+build/
+output/
 
 # Environment variables and secrets
 .env
