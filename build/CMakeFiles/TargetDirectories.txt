@@ -1,0 +1,15 @@
+C:/MyData/MOD3D/build/CMakeFiles/motion_seg_core.dir
+C:/MyData/MOD3D/build/CMakeFiles/motion_seg_cli.dir
+C:/MyData/MOD3D/build/CMakeFiles/test_ImageConverter.dir
+C:/MyData/MOD3D/build/CMakeFiles/test_GaussianPyramid.dir
+C:/MyData/MOD3D/build/CMakeFiles/test_ImageOps.dir
+C:/MyData/MOD3D/build/CMakeFiles/test_LinearSolver.dir
+C:/MyData/MOD3D/build/CMakeFiles/test_QuadraticFlowEstimator.dir
+C:/MyData/MOD3D/build/CMakeFiles/test_FrameAligner.dir
+C:/MyData/MOD3D/build/CMakeFiles/test_SecondaryFlowEstimator.dir
+C:/MyData/MOD3D/build/CMakeFiles/test_ParallaxRigidityTester.dir
+C:/MyData/MOD3D/build/CMakeFiles/test_DenseMotionSegmenter.dir
+C:/MyData/MOD3D/build/CMakeFiles/test_MotionDetectionPipeline.dir
+C:/MyData/MOD3D/build/CMakeFiles/RUN_TESTS.dir
+C:/MyData/MOD3D/build/CMakeFiles/ALL_BUILD.dir
+C:/MyData/MOD3D/build/CMakeFiles/ZERO_CHECK.dir

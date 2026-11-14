@@ -1,0 +1,113 @@
+{
+	"backtrace" : 0,
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : 
+		[
+			"CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			}
+		]
+	},
+	"codemodelVersion" : 
+	{
+		"major" : 2,
+		"minor" : 10
+	},
+	"dependencies" : 
+	[
+		{
+			"id" : "motion_seg_core::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "motion_seg_cli::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_ImageConverter::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_GaussianPyramid::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_ImageOps::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_LinearSolver::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_QuadraticFlowEstimator::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_FrameAligner::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_SecondaryFlowEstimator::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_ParallaxRigidityTester::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_DenseMotionSegmenter::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_MotionDetectionPipeline::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df"
+		}
+	],
+	"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+	"isGeneratorProvided" : true,
+	"name" : "ALL_BUILD",
+	"orderDependencies" : 
+	[
+		{
+			"id" : "motion_seg_core::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "motion_seg_cli::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_ImageConverter::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_GaussianPyramid::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_ImageOps::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_LinearSolver::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_QuadraticFlowEstimator::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_FrameAligner::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_SecondaryFlowEstimator::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_ParallaxRigidityTester::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_DenseMotionSegmenter::@6890427a1f51a3e7e1df"
+		},
+		{
+			"id" : "test_MotionDetectionPipeline::@6890427a1f51a3e7e1df"
+		}
+	],
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sources" : [],
+	"type" : "UTILITY"
+}

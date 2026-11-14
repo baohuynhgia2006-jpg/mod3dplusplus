@@ -1,0 +1,13 @@
+# Build directories
+buid/
+
+# Environment variables and secrets
+.env
+
+# Logs
+*.log
+!debug.log
+
+# OS generated files
+.DS_Store
+Thumbs.db

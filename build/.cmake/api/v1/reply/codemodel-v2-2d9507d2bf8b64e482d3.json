@@ -1,0 +1,732 @@
+{
+	"configurations" : 
+	[
+		{
+			"abstractTargets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "OpenMP::OpenMP_CXX::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-OpenMP__OpenMP_CXX-Debug-a46076aff06b32248770.json",
+					"name" : "OpenMP::OpenMP_CXX",
+					"projectIndex" : 0
+				}
+			],
+			"directories" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"build" : ".",
+					"jsonFile" : "directory-.-Debug-f040eec181a89de70dbe.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "PlanarParallaxMotionSegmentation",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-Debug-cd05dad089bff39bb5b7.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-Debug-8b945a1945a00009b72b.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "motion_seg_cli::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-motion_seg_cli-Debug-e7a71de4c23d67c8684f.json",
+					"name" : "motion_seg_cli",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "motion_seg_core::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-motion_seg_core-Debug-783e5fe3f8ca5ed5244f.json",
+					"name" : "motion_seg_core",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_DenseMotionSegmenter::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_DenseMotionSegmenter-Debug-ef258a8698bdd4a3fbf7.json",
+					"name" : "test_DenseMotionSegmenter",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_FrameAligner::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_FrameAligner-Debug-7700e28892e8bafd93d7.json",
+					"name" : "test_FrameAligner",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_GaussianPyramid::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_GaussianPyramid-Debug-47f4c99786d0bba8f2f9.json",
+					"name" : "test_GaussianPyramid",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ImageConverter::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ImageConverter-Debug-ec5ec80e1de3356d0804.json",
+					"name" : "test_ImageConverter",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ImageOps::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ImageOps-Debug-173e992c5856f5d7c75b.json",
+					"name" : "test_ImageOps",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_LinearSolver::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_LinearSolver-Debug-87927340e7d263b9db88.json",
+					"name" : "test_LinearSolver",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_MotionDetectionPipeline::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_MotionDetectionPipeline-Debug-aceac691449b3f2a207e.json",
+					"name" : "test_MotionDetectionPipeline",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ParallaxRigidityTester::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ParallaxRigidityTester-Debug-938a76e1113336e5b327.json",
+					"name" : "test_ParallaxRigidityTester",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_QuadraticFlowEstimator::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_QuadraticFlowEstimator-Debug-022968e66bc7e68c6f39.json",
+					"name" : "test_QuadraticFlowEstimator",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_SecondaryFlowEstimator::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_SecondaryFlowEstimator-Debug-bf425b9e717866231dfb.json",
+					"name" : "test_SecondaryFlowEstimator",
+					"projectIndex" : 0
+				}
+			]
+		},
+		{
+			"abstractTargets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "OpenMP::OpenMP_CXX::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-OpenMP__OpenMP_CXX-Release-a46076aff06b32248770.json",
+					"name" : "OpenMP::OpenMP_CXX",
+					"projectIndex" : 0
+				}
+			],
+			"directories" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"build" : ".",
+					"jsonFile" : "directory-.-Release-f040eec181a89de70dbe.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13
+					]
+				}
+			],
+			"name" : "Release",
+			"projects" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "PlanarParallaxMotionSegmentation",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-Release-cd05dad089bff39bb5b7.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-Release-8b945a1945a00009b72b.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "motion_seg_cli::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-motion_seg_cli-Release-345b5ce52cc54f6d751e.json",
+					"name" : "motion_seg_cli",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "motion_seg_core::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-motion_seg_core-Release-6663f96af6958a7b62c8.json",
+					"name" : "motion_seg_core",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_DenseMotionSegmenter::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_DenseMotionSegmenter-Release-2e7c6c94b9c01785e97c.json",
+					"name" : "test_DenseMotionSegmenter",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_FrameAligner::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_FrameAligner-Release-1f0afc96b9a9fb45315e.json",
+					"name" : "test_FrameAligner",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_GaussianPyramid::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_GaussianPyramid-Release-f8f7f1a3c5117f615623.json",
+					"name" : "test_GaussianPyramid",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ImageConverter::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ImageConverter-Release-02d86613e75db198bce7.json",
+					"name" : "test_ImageConverter",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ImageOps::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ImageOps-Release-629d51456c9555d4d322.json",
+					"name" : "test_ImageOps",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_LinearSolver::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_LinearSolver-Release-ba9a0a552967052ef949.json",
+					"name" : "test_LinearSolver",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_MotionDetectionPipeline::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_MotionDetectionPipeline-Release-ec107e8d5879e244677c.json",
+					"name" : "test_MotionDetectionPipeline",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ParallaxRigidityTester::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ParallaxRigidityTester-Release-07796a4a9d62f810da68.json",
+					"name" : "test_ParallaxRigidityTester",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_QuadraticFlowEstimator::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_QuadraticFlowEstimator-Release-5c576cbf09d4e85a1a74.json",
+					"name" : "test_QuadraticFlowEstimator",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_SecondaryFlowEstimator::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_SecondaryFlowEstimator-Release-2de4b0c46c517edb0871.json",
+					"name" : "test_SecondaryFlowEstimator",
+					"projectIndex" : 0
+				}
+			]
+		},
+		{
+			"abstractTargets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "OpenMP::OpenMP_CXX::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-OpenMP__OpenMP_CXX-MinSizeRel-a46076aff06b32248770.json",
+					"name" : "OpenMP::OpenMP_CXX",
+					"projectIndex" : 0
+				}
+			],
+			"directories" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"build" : ".",
+					"jsonFile" : "directory-.-MinSizeRel-f040eec181a89de70dbe.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13
+					]
+				}
+			],
+			"name" : "MinSizeRel",
+			"projects" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "PlanarParallaxMotionSegmentation",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-MinSizeRel-cd05dad089bff39bb5b7.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-MinSizeRel-8b945a1945a00009b72b.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "motion_seg_cli::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-motion_seg_cli-MinSizeRel-76c0eecd32ec55f60ed1.json",
+					"name" : "motion_seg_cli",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "motion_seg_core::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-motion_seg_core-MinSizeRel-70427516633720917b6f.json",
+					"name" : "motion_seg_core",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_DenseMotionSegmenter::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_DenseMotionSegmenter-MinSizeRel-a8bc2df6033317f95a0f.json",
+					"name" : "test_DenseMotionSegmenter",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_FrameAligner::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_FrameAligner-MinSizeRel-d08c8e8767170abeacc6.json",
+					"name" : "test_FrameAligner",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_GaussianPyramid::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_GaussianPyramid-MinSizeRel-d35ae5506623470e8500.json",
+					"name" : "test_GaussianPyramid",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ImageConverter::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ImageConverter-MinSizeRel-3289f9008ea20e0d756d.json",
+					"name" : "test_ImageConverter",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ImageOps::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ImageOps-MinSizeRel-0edcdf7bc80e8fd63f1d.json",
+					"name" : "test_ImageOps",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_LinearSolver::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_LinearSolver-MinSizeRel-893d18d9a14398d43fa8.json",
+					"name" : "test_LinearSolver",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_MotionDetectionPipeline::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_MotionDetectionPipeline-MinSizeRel-0957e24267b9138161e1.json",
+					"name" : "test_MotionDetectionPipeline",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ParallaxRigidityTester::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ParallaxRigidityTester-MinSizeRel-11b3125fa092cf9bf8f0.json",
+					"name" : "test_ParallaxRigidityTester",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_QuadraticFlowEstimator::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_QuadraticFlowEstimator-MinSizeRel-999ab71df271ba2b1318.json",
+					"name" : "test_QuadraticFlowEstimator",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_SecondaryFlowEstimator::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_SecondaryFlowEstimator-MinSizeRel-45f21866d8645e63cc89.json",
+					"name" : "test_SecondaryFlowEstimator",
+					"projectIndex" : 0
+				}
+			]
+		},
+		{
+			"abstractTargets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "OpenMP::OpenMP_CXX::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-OpenMP__OpenMP_CXX-RelWithDebInfo-a46076aff06b32248770.json",
+					"name" : "OpenMP::OpenMP_CXX",
+					"projectIndex" : 0
+				}
+			],
+			"directories" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"build" : ".",
+					"jsonFile" : "directory-.-RelWithDebInfo-f040eec181a89de70dbe.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13
+					]
+				}
+			],
+			"name" : "RelWithDebInfo",
+			"projects" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "PlanarParallaxMotionSegmentation",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-RelWithDebInfo-cd05dad089bff39bb5b7.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-RelWithDebInfo-8b945a1945a00009b72b.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "motion_seg_cli::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-motion_seg_cli-RelWithDebInfo-cb778dba59b2a6d067b2.json",
+					"name" : "motion_seg_cli",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "motion_seg_core::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-motion_seg_core-RelWithDebInfo-aea67f9f3f0cc8635aae.json",
+					"name" : "motion_seg_core",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_DenseMotionSegmenter::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_DenseMotionSegmenter-RelWithDebInfo-7f3f672bfa531924abe8.json",
+					"name" : "test_DenseMotionSegmenter",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_FrameAligner::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_FrameAligner-RelWithDebInfo-f72870f19252f1a8ebc5.json",
+					"name" : "test_FrameAligner",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_GaussianPyramid::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_GaussianPyramid-RelWithDebInfo-2cbf0843442288423758.json",
+					"name" : "test_GaussianPyramid",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ImageConverter::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ImageConverter-RelWithDebInfo-6eb6b5a2af2b96ae2fe5.json",
+					"name" : "test_ImageConverter",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ImageOps::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ImageOps-RelWithDebInfo-71b4acc10318d31e9162.json",
+					"name" : "test_ImageOps",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_LinearSolver::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_LinearSolver-RelWithDebInfo-98f6bb660d437c9bc11a.json",
+					"name" : "test_LinearSolver",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_MotionDetectionPipeline::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_MotionDetectionPipeline-RelWithDebInfo-92e64174b23c19799d0d.json",
+					"name" : "test_MotionDetectionPipeline",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ParallaxRigidityTester::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ParallaxRigidityTester-RelWithDebInfo-101db08dafb44fae87d1.json",
+					"name" : "test_ParallaxRigidityTester",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_QuadraticFlowEstimator::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_QuadraticFlowEstimator-RelWithDebInfo-d817a7cac4ce20d15755.json",
+					"name" : "test_QuadraticFlowEstimator",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_SecondaryFlowEstimator::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_SecondaryFlowEstimator-RelWithDebInfo-4e9e6305c2774c89004c.json",
+					"name" : "test_SecondaryFlowEstimator",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "C:/MyData/MOD3D/build",
+		"source" : "C:/MyData/MOD3D"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 10
+	}
+}
