@@ -15,6 +15,21 @@ We can remedy this problem by using multiple planes. First we use the 2D paramet
 
 $$ \frac{\vec{\mu}_2^{j^T} \left( \Delta \vec{p}_w \right)^j_\perp}{\vec{\mu}_1^{j^T} \left( \Delta \vec{p}_w \right)^j_\perp} - \frac{\vec{\mu}_2^{k^T} \left( \Delta \vec{p}_w \right)^k_\perp}{\vec{\mu}_1^{k^T} \left( \Delta \vec{p}_w \right)^k_\perp} = 0. $$
 
+## GUIDE
+
+1. Ensure that you have CMake installed and ready.
+
+2. Run the following command in the working directory. 
+'''bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+'''
+
+3. Follow the format to run on any sequence of images (seeds can be arbitrarily chosen):
+'''bash
+.\build\Release\motion_seg_cli.exe --input path\to\input e path\to\output  --seed 45,60 --seed 210,85
+'''
+
 ## ACKNOWLEDGEMENT
 
 Our algorithm made extensive use of the ideas outlined by the following paper, Irani, M., & Anandan, P. (1998). A unified approach to moving object detection in 2D and 3D scenes. IEEE Transactions on Pattern Analysis and Machine Intelligence, 20(6), 577-589.
