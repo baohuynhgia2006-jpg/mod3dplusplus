@@ -21,16 +21,16 @@ $$ \frac{\vec{\mu}_2^{j^T} \left( \Delta \vec{p}_w \right)^j_\perp}{\vec{\mu}_1^
 
 2. Run the following command in the working directory.
 
-'''bash
+```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
-'''
+```
 
 3. Follow the format to run on any sequence of images (seeds can be arbitrarily chosen):
 
-'''bash
+```bash
 .\build\Release\motion_seg_cli.exe --input path\to\input e path\to\output  --seed 45,60 --seed 210,85
-'''
+```
 
 ## ACKNOWLEDGEMENT
 
