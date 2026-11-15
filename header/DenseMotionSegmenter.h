@@ -10,36 +10,29 @@
 #include <vector>
 
 struct DenseSegmentationParams {
-    // Smoothness weight lambda controlling spatial coherence vs. unary priors
-    double lambda = 18.0;
-
-    // Soft t-link capacity for pixels flagged moving by Stage 4.
-    double movingSeedWeight = 12.0;
-
-    // Hard t-link capacity for verified static pixels
+    double lambda = 16.0;
+    double movingSeedWeight = 18.0;
     double staticSeedWeight = 1e5;
 
-    // Static prior for pixels already aligned by Stage 1's principal flow (!misalignedMask).
-    double alignedBackgroundPrior = 0.55;
+    // Sink unary weight for pixels verified static by Stage 4 (planar Pi_1 or Eq. 8 rigid 3D)
+    double verifiedStaticWeight = 3.5;
 
-    // Smaller static prior for untextured pixels inside Stage 2's misaligned region
-    double unknownStaticPrior = 0.05;
+    // Tiny Sink bias for low-texture neutral pixels so smooth car interiors flood cleanly
+    double unknownStaticPrior = 0.02;
 
-    // Floor on mean squared color difference (in [0, 1] normalized units)
     double minMeanColorDiffSq = 0.005;
-
-    // Padding (in pixels) around the active ROI bounding box for Graph Cut construction
-    int roiPadding = 32;
-
-    // Use 8-connected pixel grid (true) vs 4-connected grid (false)
+    int roiPadding = 48;
     bool use8Connectivity = true;
+
+    // Retained for backward compatibility
+    double alignedBackgroundPrior = 0.55;
 };
 
 struct DenseSegmentationResult {
-    std::vector<uint8_t> denseMovingMask; // 1 = moving object pixel, 0 = static background
-    std::vector<PixelCoord> movingPixels; // Dense coordinates (x, y) of segmented moving object(s)
-    double minCutEnergy = 0.0;            // Optimal MRF cut energy
-    double computedBeta = 0.0;            // Contrast normalization factor 1 / (2 * <||Ip - Iq||^2>)
+    std::vector<uint8_t> denseMovingMask;
+    std::vector<PixelCoord> movingPixels;
+    double minCutEnergy = 0.0;
+    double computedBeta = 0.0;
 };
 
 class DenseMotionSegmenter {

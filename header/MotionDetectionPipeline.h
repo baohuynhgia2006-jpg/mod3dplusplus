@@ -29,8 +29,15 @@ struct MotionPipelineResult {
 
 class MotionDetectionPipeline {
 public:
-    // Executes Stages 1 -> 5 on a 3-frame RGB/grayscale tuple using a single verified
-    // static reference pixel selected from the misaligned set.
+    // Automatically selects verified static seeds via symmetric mutual Eq. (8) if none are supplied
+    static MotionPipelineResult run(
+        const Image& prevFrame,
+        const Image& currFrame,
+        const Image& nextFrame,
+        const MotionPipelineParams& params = MotionPipelineParams{},
+        unsigned int rngSeed = 42
+    );
+
     static MotionPipelineResult run(
         const Image& prevFrame,
         const Image& currFrame,
@@ -39,24 +46,21 @@ public:
         const MotionPipelineParams& params = MotionPipelineParams{}
     );
 
-    // Executes Stages 1 -> 5 using one or more verified static reference pixels.
     static MotionPipelineResult run(
         const Image& prevFrame,
         const Image& currFrame,
         const Image& nextFrame,
         const std::vector<PixelCoord>& staticRefPixels,
-        const MotionPipelineParams& params = MotionPipelineParams{}
+        const MotionPipelineParams& params = MotionPipelineParams{},
+        unsigned int rngSeed = 42
     );
 
-    // Renders a single-channel 8-bit binary mask (0 = static, 255 = moving).
     static Image renderBinaryMask(
         const DenseSegmentationResult& segmentation,
         int width,
         int height
     );
 
-    // Renders an RGB visualization blending a red tint over detected moving object pixels
-    // and optional green markers at the verified static seed coordinates.
     static Image renderOverlay(
         const Image& referenceFrame,
         const DenseSegmentationResult& segmentation,

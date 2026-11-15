@@ -1,389 +1,475 @@
 #include "SecondaryFlowEstimator.h"
-#include "GaussianPyramid.h"
-#include "ImageOps.h"
-
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
 namespace {
 
-std::vector<uint8_t> dilateMask(const std::vector<uint8_t>& mask, int width, int height, int radius) {
-    if (radius <= 0) {
-        return mask;
-    }
+FloatImage downsample2x(const FloatImage& src) {
+    const int dstW = std::max(1, src.width / 2);
+    const int dstH = std::max(1, src.height / 2);
+    FloatImage dst(dstW, dstH, 1);
 
-    const int r2 = radius * radius;
-    std::vector<uint8_t> dilated(static_cast<size_t>(width) * height, 0);
+    constexpr float k[5] = {1.0f / 16.0f, 4.0f / 16.0f, 6.0f / 16.0f, 4.0f / 16.0f, 1.0f / 16.0f};
 
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            if (!mask[static_cast<size_t>(y) * width + x]) {
-                continue;
-            }
-            const int yMin = std::max(0, y - radius);
-            const int yMax = std::min(height - 1, y + radius);
-            const int xMin = std::max(0, x - radius);
-            const int xMax = std::min(width - 1, x + radius);
-
-            for (int ny = yMin; ny <= yMax; ++ny) {
-                const int dy = ny - y;
-                for (int nx = xMin; nx <= xMax; ++nx) {
-                    const int dx = nx - x;
-                    if (dx * dx + dy * dy <= r2) {
-                        dilated[static_cast<size_t>(ny) * width + nx] = 1;
-                    }
-                }
-            }
-        }
-    }
-
-    return dilated;
-}
-
-std::vector<uint8_t> downsampleMask(
-    const std::vector<uint8_t>& srcMask,
-    int srcW,
-    int srcH,
-    int dstW,
-    int dstH) {
-    std::vector<uint8_t> dstMask(static_cast<size_t>(dstW) * dstH, 0);
-    const double scaleX = static_cast<double>(srcW) / static_cast<double>(dstW);
-    const double scaleY = static_cast<double>(srcH) / static_cast<double>(dstH);
-
+    #pragma omp parallel for schedule(static)
     for (int y = 0; y < dstH; ++y) {
-        const int yStart = std::max(0, static_cast<int>(std::floor(y * scaleY)));
-        const int yEnd = std::min(srcH, static_cast<int>(std::ceil((y + 1) * scaleY)));
+        const int sy = std::min(src.height - 1, y * 2);
         for (int x = 0; x < dstW; ++x) {
-            const int xStart = std::max(0, static_cast<int>(std::floor(x * scaleX)));
-            const int xEnd = std::min(srcW, static_cast<int>(std::ceil((x + 1) * scaleX)));
+            const int sx = std::min(src.width - 1, x * 2);
+            float acc = 0.0f;
+            for (int dy = -2; dy <= 2; ++dy) {
+                const int yy = std::clamp(sy + dy, 0, src.height - 1);
+                const float wy = k[dy + 2];
+                for (int dx = -2; dx <= 2; ++dx) {
+                    const int xx = std::clamp(sx + dx, 0, src.width - 1);
+                    acc += wy * k[dx + 2] * src.at(yy, xx);
+                }
+            }
+            dst.at(y, x) = acc;
+        }
+    }
+    return dst;
+}
 
-            uint8_t active = 0;
-            for (int sy = yStart; sy < yEnd && !active; ++sy) {
-                for (int sx = xStart; sx < xEnd; ++sx) {
-                    if (srcMask[static_cast<size_t>(sy) * srcW + sx]) {
-                        active = 1;
-                        break;
+std::vector<uint8_t> downsampleMask2x(const std::vector<uint8_t>& src, int srcW, int srcH, int dstW, int dstH) {
+    std::vector<uint8_t> dst(static_cast<size_t>(dstW) * dstH, 0);
+    for (int y = 0; y < dstH; ++y) {
+        for (int x = 0; x < dstW; ++x) {
+            uint8_t any = 0;
+            for (int dy = 0; dy < 2; ++dy) {
+                const int sy = std::min(srcH - 1, y * 2 + dy);
+                for (int dx = 0; dx < 2; ++dx) {
+                    const int sx = std::min(srcW - 1, x * 2 + dx);
+                    if (src[static_cast<size_t>(sy) * srcW + sx]) {
+                        any = 1;
                     }
                 }
             }
-            dstMask[static_cast<size_t>(y) * dstW + x] = active;
+            dst[static_cast<size_t>(y) * dstW + x] = any;
         }
     }
-
-    return dstMask;
+    return dst;
 }
 
-FlowField upsampleResidualFlow(const FlowField& coarse, int targetW, int targetH) {
-    FlowField fine(targetW, targetH);
-    const float scaleX = static_cast<float>(targetW) / static_cast<float>(coarse.width);
-    const float scaleY = static_cast<float>(targetH) / static_cast<float>(coarse.height);
+inline float sampleBilinear(const FloatImage& img, float x, float y) {
+    const float cx = std::clamp(x, 0.0f, static_cast<float>(img.width - 1));
+    const float cy = std::clamp(y, 0.0f, static_cast<float>(img.height - 1));
 
-    FloatImage coarseU(coarse.width, coarse.height, 1);
-    FloatImage coarseV(coarse.width, coarse.height, 1);
-    coarseU.data = coarse.u;
-    coarseV.data = coarse.v;
+    const int x0 = static_cast<int>(std::floor(cx));
+    const int y0 = static_cast<int>(std::floor(cy));
+    const int x1 = std::min(img.width - 1, x0 + 1);
+    const int y1 = std::min(img.height - 1, y0 + 1);
 
-    for (int y = 0; y < targetH; ++y) {
-        const float srcY = (static_cast<float>(y) + 0.5f) / scaleY - 0.5f;
-        for (int x = 0; x < targetW; ++x) {
-            const float srcX = (static_cast<float>(x) + 0.5f) / scaleX - 0.5f;
-            fine.atU(y, x) = ImageOps::sampleBilinear(coarseU, srcX, srcY) * scaleX;
-            fine.atV(y, x) = ImageOps::sampleBilinear(coarseV, srcX, srcY) * scaleY;
-        }
-    }
+    const float fx = cx - static_cast<float>(x0);
+    const float fy = cy - static_cast<float>(y0);
 
-    return fine;
+    const float v00 = img.at(y0, x0);
+    const float v10 = img.at(y0, x1);
+    const float v01 = img.at(y1, x0);
+    const float v11 = img.at(y1, x1);
+
+    return (1.0f - fy) * ((1.0f - fx) * v00 + fx * v10)
+         + fy          * ((1.0f - fx) * v01 + fx * v11);
 }
 
-void smoothResidualInMask(
-    FlowField& residual,
-    const std::vector<uint8_t>& activeMask,
+inline void sampleFlowBilinear(const FlowField& flow, float x, float y, float& outU, float& outV) {
+    const float cx = std::clamp(x, 0.0f, static_cast<float>(flow.width - 1));
+    const float cy = std::clamp(y, 0.0f, static_cast<float>(flow.height - 1));
+
+    const int x0 = static_cast<int>(std::floor(cx));
+    const int y0 = static_cast<int>(std::floor(cy));
+    const int x1 = std::min(flow.width - 1, x0 + 1);
+    const int y1 = std::min(flow.height - 1, y0 + 1);
+
+    const float fx = cx - static_cast<float>(x0);
+    const float fy = cy - static_cast<float>(y0);
+
+    const size_t i00 = static_cast<size_t>(y0) * flow.width + x0;
+    const size_t i10 = static_cast<size_t>(y0) * flow.width + x1;
+    const size_t i01 = static_cast<size_t>(y1) * flow.width + x0;
+    const size_t i11 = static_cast<size_t>(y1) * flow.width + x1;
+
+    outU = (1.0f - fy) * ((1.0f - fx) * flow.u[i00] + fx * flow.u[i10])
+         + fy          * ((1.0f - fx) * flow.u[i01] + fx * flow.u[i11]);
+    outV = (1.0f - fy) * ((1.0f - fx) * flow.v[i00] + fx * flow.v[i10])
+         + fy          * ((1.0f - fx) * flow.v[i01] + fx * flow.v[i11]);
+}
+
+void smoothValidFlow(
+    FlowField& flow,
+    const std::vector<uint8_t>& validMask,
     int iterations,
     double alpha) {
-    if (iterations <= 0 || alpha <= 0.0) {
-        return;
-    }
+    if (iterations <= 0 || alpha <= 0.0) return;
 
-    const int w = residual.width;
-    const int h = residual.height;
-    const float a = static_cast<float>(std::clamp(alpha, 0.0, 0.25));
+    const int w = flow.width;
+    const int h = flow.height;
+    const float a = static_cast<float>(std::clamp(alpha, 0.0, 0.5));
 
-    FlowField temp = residual;
-    constexpr int dx[4] = {-1, 1, 0, 0};
-    constexpr int dy[4] = {0, 0, -1, 1};
+    FlowField temp(w, h);
+    constexpr int dx4[4] = {-1, 1, 0, 0};
+    constexpr int dy4[4] = {0, 0, -1, 1};
 
     for (int it = 0; it < iterations; ++it) {
+        temp.u = flow.u;
+        temp.v = flow.v;
+
+        #pragma omp parallel for schedule(static)
         for (int y = 1; y < h - 1; ++y) {
             for (int x = 1; x < w - 1; ++x) {
                 const size_t idx = static_cast<size_t>(y) * w + x;
-                if (!activeMask[idx]) {
-                    temp.atU(y, x) = 0.0f;
-                    temp.atV(y, x) = 0.0f;
-                    continue;
-                }
+                if (!validMask[idx]) continue;
 
                 float sumU = 0.0f;
                 float sumV = 0.0f;
-                int activeNeighbors = 0;
+                int count = 0;
 
-                for (int k = 0; k < 4; ++k) {
-                    const int nx = x + dx[k];
-                    const int ny = y + dy[k];
-                    if (activeMask[static_cast<size_t>(ny) * w + nx]) {
-                        sumU += residual.atU(ny, nx);
-                        sumV += residual.atV(ny, nx);
-                        activeNeighbors++;
+                for (int d = 0; d < 4; ++d) {
+                    const size_t nIdx = static_cast<size_t>(y + dy4[d]) * w + (x + dx4[d]);
+                    if (validMask[nIdx]) {
+                        sumU += temp.u[nIdx];
+                        sumV += temp.v[nIdx];
+                        count++;
                     }
                 }
 
-                if (activeNeighbors > 0) {
-                    const float centerWeight = 1.0f - a * static_cast<float>(activeNeighbors);
-                    temp.atU(y, x) = centerWeight * residual.atU(y, x) + a * sumU;
-                    temp.atV(y, x) = centerWeight * residual.atV(y, x) + a * sumV;
+                if (count > 0) {
+                    const float avgU = sumU / static_cast<float>(count);
+                    const float avgV = sumV / static_cast<float>(count);
+                    flow.u[idx] = (1.0f - a) * temp.u[idx] + a * avgU;
+                    flow.v[idx] = (1.0f - a) * temp.v[idx] + a * avgV;
                 }
             }
         }
-        residual = temp;
     }
 }
 
-void estimatePairwiseResidual(
-    const std::vector<FloatImage>& pyrCurr,
-    const std::vector<FloatImage>& pyrTarget,
-    const std::vector<std::vector<uint8_t>>& pyrMasks,
-    const std::vector<uint8_t>& misalignedMask,
-    const std::array<double, 12>& baseCoeffs,
-    double baseVectorScale,
+void estimateDenseResidualPair(
+    const std::vector<FloatImage>& pyrRef,
+    const std::vector<FloatImage>& pyrWarped,
+    const std::vector<std::vector<uint8_t>>& pyrMask,
     const SecondaryFlowParams& params,
-    FlowField& outResidual,
+    FlowField& outRawResidual,
     std::vector<uint8_t>& outValidMask) {
-    const int actualLevels = static_cast<int>(pyrCurr.size());
-    const int baseW = pyrCurr[0].width;
-    const int baseH = pyrCurr[0].height;
-    const size_t basePixels = static_cast<size_t>(baseW) * baseH;
+    const int numLevels = static_cast<int>(pyrRef.size());
+    const int rad = std::max(1, params.windowRadius);
+    const int winDim = 2 * rad + 1;
 
-    const int r = std::max(1, params.windowRadius);
-    const int winDim = 2 * r + 1;
-    std::vector<double> winWeights(static_cast<size_t>(winDim) * winDim, 1.0);
-    const double twoSigmaSq = 2.0 * std::max(0.1, params.windowSigma) * std::max(0.1, params.windowSigma);
-    for (int dy = -r; dy <= r; ++dy) {
-        for (int dx = -r; dx <= r; ++dx) {
-            const double distSq = static_cast<double>(dx * dx + dy * dy);
-            winWeights[static_cast<size_t>(dy + r) * winDim + (dx + r)] = std::exp(-distSq / twoSigmaSq);
+    std::vector<float> winWeights(static_cast<size_t>(winDim * winDim), 1.0f);
+    const double twoSigmaSq = 2.0 * std::max(0.25, params.windowSigma * params.windowSigma);
+    for (int dy = -rad; dy <= rad; ++dy) {
+        for (int dx = -rad; dx <= rad; ++dx) {
+            const double r2 = static_cast<double>(dx * dx + dy * dy);
+            winWeights[static_cast<size_t>((dy + rad) * winDim + (dx + rad))] =
+                static_cast<float>(std::exp(-r2 / twoSigmaSq));
         }
     }
 
-    FlowField residualFlow;
-    outValidMask.assign(basePixels, 0);
+    FlowField flowU_V;
 
-    for (int level = actualLevels - 1; level >= 0; --level) {
-        const FloatImage& imgCurr = pyrCurr[static_cast<size_t>(level)];
-        const FloatImage& imgTarget = pyrTarget[static_cast<size_t>(level)];
-        const std::vector<uint8_t>& activeMask = pyrMasks[static_cast<size_t>(level)];
+    for (int lvl = numLevels - 1; lvl >= 0; --lvl) {
+        const FloatImage& I0 = pyrRef[static_cast<size_t>(lvl)];
+        const FloatImage& I1 = pyrWarped[static_cast<size_t>(lvl)];
+        const std::vector<uint8_t>& mask = pyrMask[static_cast<size_t>(lvl)];
 
-        const int w = imgCurr.width;
-        const int h = imgCurr.height;
-        const size_t levelPixels = static_cast<size_t>(w) * h;
+        const int w = I0.width;
+        const int h = I0.height;
+        const size_t numPixels = static_cast<size_t>(w) * h;
 
-        if (level == actualLevels - 1) {
-            residualFlow = FlowField(w, h);
+        if (lvl == numLevels - 1) {
+            flowU_V = FlowField(w, h);
         } else {
-            residualFlow = upsampleResidualFlow(residualFlow, w, h);
-            for (size_t i = 0; i < levelPixels; ++i) {
-                if (!activeMask[i]) {
-                    residualFlow.u[i] = 0.0f;
-                    residualFlow.v[i] = 0.0f;
-                }
-            }
-        }
-
-        std::array<double, 12> levelCoeffs = baseCoeffs;
-        const double levelScaleX = static_cast<double>(w) / static_cast<double>(baseW);
-        const double levelScaleY = static_cast<double>(h) / static_cast<double>(baseH);
-        for (int k = 0; k < 6; ++k) {
-            levelCoeffs[static_cast<size_t>(k)] *= levelScaleX;
-            levelCoeffs[static_cast<size_t>(k + 6)] *= levelScaleY;
-        }
-        FlowField baseFlow = QuadraticFlowEstimator::evaluateFlow(w, h, levelCoeffs, baseVectorScale);
-
-        FloatImage ixCurr, iyCurr;
-        ImageOps::computeGradients(imgCurr, ixCurr, iyCurr);
-
-        std::vector<uint8_t> validWarp;
-        FlowField totalFlow(w, h);
-
-        std::vector<double> a11(levelPixels, 0.0);
-        std::vector<double> a12(levelPixels, 0.0);
-        std::vector<double> a22(levelPixels, 0.0);
-        std::vector<double> b1(levelPixels, 0.0);
-        std::vector<double> b2(levelPixels, 0.0);
-
-        for (int iter = 0; iter < params.maxIterationsPerLevel; ++iter) {
-            for (size_t i = 0; i < levelPixels; ++i) {
-                totalFlow.u[i] = baseFlow.u[i] + residualFlow.u[i];
-                totalFlow.v[i] = baseFlow.v[i] + residualFlow.v[i];
-            }
-
-            FloatImage warpedTarget = ImageOps::warpBackward(imgTarget, totalFlow, &validWarp);
-            FloatImage ixTarget, iyTarget;
-            ImageOps::computeGradients(warpedTarget, ixTarget, iyTarget);
-
-            std::fill(a11.begin(), a11.end(), 0.0);
-            std::fill(a12.begin(), a12.end(), 0.0);
-            std::fill(a22.begin(), a22.end(), 0.0);
-            std::fill(b1.begin(), b1.end(), 0.0);
-            std::fill(b2.begin(), b2.end(), 0.0);
-
-            // Parallelize structure-tensor outer-product fill:
-            #pragma omp parallel for schedule(static)
+            FlowField upsampled(w, h);
+            const int prevW = flowU_V.width;
+            const int prevH = flowU_V.height;
             for (int y = 0; y < h; ++y) {
+                const int sy = std::min(prevH - 1, y / 2);
                 for (int x = 0; x < w; ++x) {
-                    const size_t idx = static_cast<size_t>(y) * w + x;
-                    if (!validWarp[idx]) {
-                        continue;
-                    }
-                    const double ix = 0.5 * (static_cast<double>(ixTarget.at(y, x)) + static_cast<double>(ixCurr.at(y, x)));
-                    const double iy = 0.5 * (static_cast<double>(iyTarget.at(y, x)) + static_cast<double>(iyCurr.at(y, x)));
-                    const double rDiff = static_cast<double>(imgCurr.at(y, x) - warpedTarget.at(y, x));
-
-                    a11[idx] = ix * ix;
-                    a12[idx] = ix * iy;
-                    a22[idx] = iy * iy;
-                    b1[idx] = ix * rDiff;
-                    b2[idx] = iy * rDiff;
+                    const int sx = std::min(prevW - 1, x / 2);
+                    const size_t dstIdx = static_cast<size_t>(y) * w + x;
+                    const size_t srcIdx = static_cast<size_t>(sy) * prevW + sx;
+                    upsampled.u[dstIdx] = 2.0f * flowU_V.u[srcIdx];
+                    upsampled.v[dstIdx] = 2.0f * flowU_V.v[srcIdx];
                 }
             }
+            flowU_V = std::move(upsampled);
+        }
 
-            double maxDelta = 0.0;
+        // Precompute reference spatial gradients on I0
+        std::vector<float> gx(numPixels, 0.0f);
+        std::vector<float> gy(numPixels, 0.0f);
 
-            #pragma omp parallel
-            {
-                double localMaxDelta = 0.0;
-
-                #pragma omp for schedule(dynamic, 8)
-                for (int y = 0; y < h; ++y) {
-                    for (int x = 0; x < w; ++x) {
-                        const size_t idx = static_cast<size_t>(y) * w + x;
-                        if (!activeMask[idx]) {
-                            continue;
-                        }
-
-                        double s11 = 0.0, s12 = 0.0, s22 = 0.0;
-                        double rhs1 = 0.0, rhs2 = 0.0;
-
-                        const int yMin = std::max(0, y - r);
-                        const int yMax = std::min(h - 1, y + r);
-                        const int xMin = std::max(0, x - r);
-                        const int xMax = std::min(w - 1, x + r);
-
-                        for (int wy = yMin; wy <= yMax; ++wy) {
-                            const int kRow = (wy - y + r) * winDim;
-                            for (int wx = xMin; wx <= xMax; ++wx) {
-                                const double gw = winWeights[static_cast<size_t>(kRow + (wx - x + r))];
-                                const size_t nIdx = static_cast<size_t>(wy) * w + wx;
-
-                                s11 += gw * a11[nIdx];
-                                s12 += gw * a12[nIdx];
-                                s22 += gw * a22[nIdx];
-                                rhs1 += gw * b1[nIdx];
-                                rhs2 += gw * b2[nIdx];
-                            }
-                        }
-
-                        const double d11 = s11 + params.regularizationDamping;
-                        const double d22 = s22 + params.regularizationDamping;
-                        const double det = d11 * d22 - s12 * s12;
-
-                        if (det > 1e-12) {
-                            const double du = (d22 * rhs1 - s12 * rhs2) / det;
-                            const double dv = (-s12 * rhs1 + d11 * rhs2) / det;
-
-                            const double stepU = std::clamp(du, -2.0, 2.0);
-                            const double stepV = std::clamp(dv, -2.0, 2.0);
-
-                            residualFlow.u[idx] += static_cast<float>(stepU);
-                            residualFlow.v[idx] += static_cast<float>(stepV);
-
-                            localMaxDelta = std::max(localMaxDelta, std::max(std::fabs(stepU), std::fabs(stepV)));
-                        }
-                    }
-                }
-
-                #pragma omp critical
-                {
-                    maxDelta = std::max(maxDelta, localMaxDelta);
-                }
-            }
-
-            smoothResidualInMask(residualFlow, activeMask, params.smoothingIterations, params.smoothingAlpha);
-
-            if (maxDelta < params.convergenceEps) {
-                break;
+        #pragma omp parallel for schedule(static)
+        for (int y = 1; y < h - 1; ++y) {
+            for (int x = 1; x < w - 1; ++x) {
+                const size_t idx = static_cast<size_t>(y) * w + x;
+                gx[idx] = 0.5f * (I0.at(y, x + 1) - I0.at(y, x - 1));
+                gy[idx] = 0.5f * (I0.at(y + 1, x) - I0.at(y - 1, x));
             }
         }
 
-        // At full resolution (level 0), evaluate post-convergence conditioning and occlusion consistency
-        if (level == 0) {
-            for (size_t i = 0; i < levelPixels; ++i) {
-                totalFlow.u[i] = baseFlow.u[i] + residualFlow.u[i];
-                totalFlow.v[i] = baseFlow.v[i] + residualFlow.v[i];
-            }
-            FloatImage finalWarped = ImageOps::warpBackward(imgTarget, totalFlow, &validWarp);
+        std::vector<uint8_t> levelValid(numPixels, 0);
 
-            for (int y = 0; y < h; ++y) {
-                for (int x = 0; x < w; ++x) {
-                    const size_t idx = static_cast<size_t>(y) * w + x;
-                    if (!misalignedMask[idx] || !validWarp[idx]) {
-                        outValidMask[idx] = 0;
-                        continue;
+        #pragma omp parallel for schedule(static)
+        for (int y = rad + 1; y < h - rad - 1; ++y) {
+            for (int x = rad + 1; x < w - rad - 1; ++x) {
+                const size_t idx = static_cast<size_t>(y) * w + x;
+                if (!mask[idx]) {
+                    flowU_V.u[idx] = 0.0f;
+                    flowU_V.v[idx] = 0.0f;
+                    continue;
+                }
+
+                // Assemble 2x2 structure tensor G on reference frame I0
+                double gxx = 0.0, gxy = 0.0, gyy = 0.0;
+                double weightSum = 0.0;
+
+                for (int wy = -rad; wy <= rad; ++wy) {
+                    for (int wx = -rad; wx <= rad; ++wx) {
+                        const size_t nIdx = static_cast<size_t>(y + wy) * w + (x + wx);
+                        const double wgt = static_cast<double>(
+                            winWeights[static_cast<size_t>((wy + rad) * winDim + (wx + rad))]
+                        );
+                        const double ix = static_cast<double>(gx[nIdx]);
+                        const double iy = static_cast<double>(gy[nIdx]);
+                        gxx += wgt * ix * ix;
+                        gxy += wgt * ix * iy;
+                        gyy += wgt * iy * iy;
+                        weightSum += wgt;
+                    }
+                }
+
+                if (weightSum <= 1e-12) continue;
+                gxx /= weightSum;
+                gxy /= weightSum;
+                gyy /= weightSum;
+
+                const double trace = gxx + gyy;
+                const double det = gxx * gyy - gxy * gxy;
+                const double disc = std::sqrt(std::max(0.0, 0.25 * trace * trace - det));
+                const double lambdaMax = 0.5 * trace + disc;
+                const double lambdaMin = 0.5 * trace - disc;
+
+                if (lambdaMin < params.minEigenvalue ||
+                    lambdaMax <= 1e-12 ||
+                    (lambdaMin / lambdaMax) < params.minEigenRatio) {
+                    flowU_V.u[idx] = 0.0f;
+                    flowU_V.v[idx] = 0.0f;
+                    continue;
+                }
+
+                const double regGxx = gxx + params.regularizationDamping;
+                const double regGyy = gyy + params.regularizationDamping;
+                const double regDet = regGxx * regGyy - gxy * gxy;
+                if (std::fabs(regDet) <= 1e-15) continue;
+                const double invDet = 1.0 / regDet;
+
+                double u = static_cast<double>(flowU_V.u[idx]);
+                double v = static_cast<double>(flowU_V.v[idx]);
+                bool inside = true;
+
+                for (int it = 0; it < params.maxIterationsPerLevel; ++it) {
+                    const double cx = static_cast<double>(x) + u;
+                    const double cy = static_cast<double>(y) + v;
+
+                    if (cx < rad + 1 || cx > w - rad - 2 || cy < rad + 1 || cy > h - rad - 2) {
+                        inside = false;
+                        break;
                     }
 
-                    // 1. Post-warp photometric consistency check (filters out occluded pixels)
-                    const double postErr = std::fabs(
-                        static_cast<double>(imgCurr.at(y, x)) - static_cast<double>(finalWarped.at(y, x))
+                    double bx = 0.0, by = 0.0;
+                    for (int wy = -rad; wy <= rad; ++wy) {
+                        for (int wx = -rad; wx <= rad; ++wx) {
+                            const size_t nIdx = static_cast<size_t>(y + wy) * w + (x + wx);
+                            const double wgt = static_cast<double>(
+                                winWeights[static_cast<size_t>((wy + rad) * winDim + (wx + rad))]
+                            );
+                            const float i1Val = sampleBilinear(
+                                I1,
+                                static_cast<float>(cx + wx),
+                                static_cast<float>(cy + wy)
+                            );
+                            const double diff = static_cast<double>(I0.at(y + wy, x + wx) - i1Val);
+                            bx += wgt * diff * static_cast<double>(gx[nIdx]);
+                            by += wgt * diff * static_cast<double>(gy[nIdx]);
+                        }
+                    }
+
+                    bx /= weightSum;
+                    by /= weightSum;
+
+                    const double du = invDet * ( regGyy * bx - gxy * by);
+                    const double dv = invDet * (-gxy * bx + regGxx * by);
+                    u += du;
+                    v += dv;
+
+                    if (std::hypot(du, dv) < params.convergenceEps) {
+                        break;
+                    }
+                }
+
+                if (!inside) {
+                    flowU_V.u[idx] = 0.0f;
+                    flowU_V.v[idx] = 0.0f;
+                    continue;
+                }
+
+                // Check post-warp photometric match at finest level
+                if (lvl == 0) {
+                    const float finalVal = sampleBilinear(
+                        I1,
+                        static_cast<float>(x + u),
+                        static_cast<float>(y + v)
                     );
-                    if (postErr > params.maxPostWarpError) {
-                        outValidMask[idx] = 0;
+                    if (std::fabs(I0.at(y, x) - finalVal) > static_cast<float>(params.maxPostWarpError)) {
+                        flowU_V.u[idx] = 0.0f;
+                        flowU_V.v[idx] = 0.0f;
                         continue;
                     }
-
-                    // 2. Structure tensor conditioning (rejects flat asphalt & 1D aperture edges)
-                    double s11 = 0.0, s12 = 0.0, s22 = 0.0;
-                    const int yMin = std::max(0, y - r);
-                    const int yMax = std::min(h - 1, y + r);
-                    const int xMin = std::max(0, x - r);
-                    const int xMax = std::min(w - 1, x + r);
-
-                    for (int wy = yMin; wy <= yMax; ++wy) {
-                        const int kRow = (wy - y + r) * winDim;
-                        for (int wx = xMin; wx <= xMax; ++wx) {
-                            const double gw = winWeights[static_cast<size_t>(kRow + (wx - x + r))];
-                            const size_t nIdx = static_cast<size_t>(wy) * w + wx;
-                            s11 += gw * a11[nIdx];
-                            s12 += gw * a12[nIdx];
-                            s22 += gw * a22[nIdx];
-                        }
-                    }
-
-                    const double trace = s11 + s22;
-                    const double detRaw = s11 * s22 - s12 * s12;
-                    const double disc = std::sqrt(std::max(0.0, trace * trace - 4.0 * detRaw));
-                    const double lambdaMax = 0.5 * (trace + disc);
-                    const double lambdaMin = 0.5 * (trace - disc);
-                    const double eigenRatio = (lambdaMax > 1e-12) ? (lambdaMin / lambdaMax) : 0.0;
-
-                    outValidMask[idx] =
-                        (lambdaMin >= params.minEigenvalue && eigenRatio >= params.minEigenRatio) ? 1 : 0;
                 }
+
+                flowU_V.u[idx] = static_cast<float>(u);
+                flowU_V.v[idx] = static_cast<float>(v);
+                levelValid[idx] = 1;
             }
+        }
+
+        if (lvl == 0) {
+            outValidMask = std::move(levelValid);
         }
     }
 
-    outResidual = std::move(residualFlow);
+    smoothValidFlow(flowU_V, outValidMask, params.smoothingIterations, params.smoothingAlpha);
+    outRawResidual = std::move(flowU_V);
 }
 
 } // namespace
+
+SecondaryFlowResult SecondaryFlowEstimator::estimateFromWarped(
+    const FloatImage& curr,
+    const AlignmentResult& alignment,
+    const QuadraticFlowResult& principalFlow,
+    const SecondaryFlowParams& params) {
+    if (curr.empty() || alignment.warpedPrev.empty() || alignment.warpedNext.empty()) {
+        throw std::invalid_argument("Reference and warped frames must not be empty.");
+    }
+
+    const int w = curr.width;
+    const int h = curr.height;
+    const size_t numPixels = static_cast<size_t>(w) * h;
+
+    if (alignment.warpedPrev.width != w || alignment.warpedPrev.height != h ||
+        alignment.warpedNext.width != w || alignment.warpedNext.height != h ||
+        alignment.inBoundsMask.size() != numPixels) {
+        throw std::invalid_argument("Warped frames and inBoundsMask must match curr dimensions.");
+    }
+
+    std::vector<FloatImage> pyrCurr;
+    std::vector<FloatImage> pyrWarpedPrev;
+    std::vector<FloatImage> pyrWarpedNext;
+    std::vector<std::vector<uint8_t>> pyrMask;
+
+    pyrCurr.push_back(curr);
+    pyrWarpedPrev.push_back(alignment.warpedPrev);
+    pyrWarpedNext.push_back(alignment.warpedNext);
+    pyrMask.push_back(alignment.inBoundsMask);
+
+    for (int lvl = 1; lvl < std::max(1, params.pyramidLevels); ++lvl) {
+        const int curW = pyrCurr.back().width;
+        const int curH = pyrCurr.back().height;
+        if (curW / 2 < params.minPyramidDim || curH / 2 < params.minPyramidDim) {
+            break;
+        }
+        pyrCurr.push_back(downsample2x(pyrCurr.back()));
+        pyrWarpedPrev.push_back(downsample2x(pyrWarpedPrev.back()));
+        pyrWarpedNext.push_back(downsample2x(pyrWarpedNext.back()));
+        pyrMask.push_back(downsampleMask2x(
+            pyrMask.back(), curW, curH, pyrCurr.back().width, pyrCurr.back().height
+        ));
+    }
+
+    FlowField rawResPrev;
+    FlowField rawResNext;
+    std::vector<uint8_t> validPrev;
+    std::vector<uint8_t> validNext;
+
+    estimateDenseResidualPair(pyrCurr, pyrWarpedPrev, pyrMask, params, rawResPrev, validPrev);
+    estimateDenseResidualPair(pyrCurr, pyrWarpedNext, pyrMask, params, rawResNext, validNext);
+
+    SecondaryFlowResult result;
+    result.backwardFlow = FlowField(w, h);
+    result.forwardFlow = FlowField(w, h);
+    result.residualFlowPrev = FlowField(w, h);
+    result.residualFlowNext = FlowField(w, h);
+    result.validFlowMask.assign(numPixels, 0);
+
+    // Apply exact quadratic composition correction:
+    // mu^j(p) = mu_tilde^j(p) + u_0^j(p + mu_tilde^j(p)) - u_0^j(p)
+    #pragma omp parallel for schedule(static)
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const size_t idx = static_cast<size_t>(y) * w + x;
+            if (!alignment.inBoundsMask[idx] || !validPrev[idx] || !validNext[idx]) {
+                result.backwardFlow.u[idx] = principalFlow.backwardFlow.u[idx];
+                result.backwardFlow.v[idx] = principalFlow.backwardFlow.v[idx];
+                result.forwardFlow.u[idx] = principalFlow.forwardFlow.u[idx];
+                result.forwardFlow.v[idx] = principalFlow.forwardFlow.v[idx];
+                continue;
+            }
+
+            const float rawUxPrev = rawResPrev.u[idx];
+            const float rawUyPrev = rawResPrev.v[idx];
+            float u0PrevShiftedX = 0.0f, u0PrevShiftedY = 0.0f;
+            sampleFlowBilinear(
+                principalFlow.backwardFlow,
+                static_cast<float>(x) + rawUxPrev,
+                static_cast<float>(y) + rawUyPrev,
+                u0PrevShiftedX,
+                u0PrevShiftedY
+            );
+
+            const float muJx = rawUxPrev + (u0PrevShiftedX - principalFlow.backwardFlow.u[idx]);
+            const float muJy = rawUyPrev + (u0PrevShiftedY - principalFlow.backwardFlow.v[idx]);
+
+            const float rawUxNext = rawResNext.u[idx];
+            const float rawUyNext = rawResNext.v[idx];
+            float u0NextShiftedX = 0.0f, u0NextShiftedY = 0.0f;
+            sampleFlowBilinear(
+                principalFlow.forwardFlow,
+                static_cast<float>(x) + rawUxNext,
+                static_cast<float>(y) + rawUyNext,
+                u0NextShiftedX,
+                u0NextShiftedY
+            );
+
+            const float muKx = rawUxNext + (u0NextShiftedX - principalFlow.forwardFlow.u[idx]);
+            const float muKy = rawUyNext + (u0NextShiftedY - principalFlow.forwardFlow.v[idx]);
+
+            result.residualFlowPrev.u[idx] = muJx;
+            result.residualFlowPrev.v[idx] = muJy;
+            result.residualFlowNext.u[idx] = muKx;
+            result.residualFlowNext.v[idx] = muKy;
+
+            result.backwardFlow.u[idx] = principalFlow.backwardFlow.u[idx] + muJx;
+            result.backwardFlow.v[idx] = principalFlow.backwardFlow.v[idx] + muJy;
+            result.forwardFlow.u[idx] = principalFlow.forwardFlow.u[idx] + muKx;
+            result.forwardFlow.v[idx] = principalFlow.forwardFlow.v[idx] + muKy;
+
+            result.validFlowMask[idx] = 1;
+        }
+    }
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            if (result.validFlowMask[static_cast<size_t>(y) * w + x]) {
+                result.validPixels.push_back(PixelCoord{x, y});
+            }
+        }
+    }
+
+    return result;
+}
 
 SecondaryFlowResult SecondaryFlowEstimator::estimate(
     const FloatImage& prev,
@@ -392,7 +478,11 @@ SecondaryFlowResult SecondaryFlowEstimator::estimate(
     const QuadraticFlowResult& principalFlow,
     const AlignmentResult& alignment,
     const SecondaryFlowParams& params) {
-    return estimate(prev, curr, next, principalFlow, alignment.misalignedMask, params);
+    if (!alignment.warpedPrev.empty() && !alignment.warpedNext.empty() && !alignment.inBoundsMask.empty()) {
+        return estimateFromWarped(curr, alignment, principalFlow, params);
+    }
+    AlignmentResult warped = FrameAligner::warpToReference(prev, curr, next, principalFlow);
+    return estimateFromWarped(curr, warped, principalFlow, params);
 }
 
 SecondaryFlowResult SecondaryFlowEstimator::estimate(
@@ -400,131 +490,13 @@ SecondaryFlowResult SecondaryFlowEstimator::estimate(
     const FloatImage& curr,
     const FloatImage& next,
     const QuadraticFlowResult& principalFlow,
-    const std::vector<uint8_t>& misalignedMask,
+    const std::vector<uint8_t>& activeMask,
     const SecondaryFlowParams& params) {
-    if (prev.empty() || curr.empty() || next.empty()) {
-        throw std::invalid_argument("Input frames must not be empty.");
-    }
-    if (prev.width != curr.width || prev.height != curr.height ||
-        next.width != curr.width || next.height != curr.height) {
-        throw std::invalid_argument("All three frames must have identical dimensions.");
-    }
-    if (prev.channels != 1 || curr.channels != 1 || next.channels != 1) {
-        throw std::invalid_argument("SecondaryFlowEstimator expects single-channel FloatImage inputs.");
-    }
-
-    const int baseW = curr.width;
-    const int baseH = curr.height;
-    const size_t basePixels = static_cast<size_t>(baseW) * baseH;
-
-    if (misalignedMask.size() != basePixels) {
-        throw std::invalid_argument("misalignedMask size must match frame pixel count.");
-    }
-
-    bool hasAnyMisaligned = false;
-    for (uint8_t m : misalignedMask) {
-        if (m != 0) {
-            hasAnyMisaligned = true;
-            break;
+    AlignmentResult warped = FrameAligner::warpToReference(prev, curr, next, principalFlow);
+    if (activeMask.size() == warped.inBoundsMask.size()) {
+        for (size_t i = 0; i < activeMask.size(); ++i) {
+            warped.inBoundsMask[i] = (warped.inBoundsMask[i] && activeMask[i]) ? 1 : 0;
         }
     }
-
-    if (!hasAnyMisaligned) {
-        SecondaryFlowResult emptyRes;
-        emptyRes.backwardFlow = principalFlow.backwardFlow;
-        emptyRes.forwardFlow = principalFlow.forwardFlow;
-        emptyRes.residualFlowPrev = FlowField(baseW, baseH);
-        emptyRes.residualFlowNext = FlowField(baseW, baseH);
-        emptyRes.validFlowMask.assign(basePixels, 0);
-        return emptyRes;
-    }
-
-    const std::vector<uint8_t> workingMask0 = dilateMask(
-        misalignedMask,
-        baseW,
-        baseH,
-        std::max(0, params.maskDilationRadius)
-    );
-
-    const int numLevels = std::max(1, params.pyramidLevels);
-    std::vector<FloatImage> pyrPrev = GaussianPyramid::build(prev, numLevels, params.minPyramidDim);
-    std::vector<FloatImage> pyrCurr = GaussianPyramid::build(curr, numLevels, params.minPyramidDim);
-    std::vector<FloatImage> pyrNext = GaussianPyramid::build(next, numLevels, params.minPyramidDim);
-
-    const int actualLevels = static_cast<int>(pyrCurr.size());
-    std::vector<std::vector<uint8_t>> pyrMasks(static_cast<size_t>(actualLevels));
-    pyrMasks[0] = workingMask0;
-    for (int level = 1; level < actualLevels; ++level) {
-        pyrMasks[static_cast<size_t>(level)] = downsampleMask(
-            workingMask0,
-            baseW,
-            baseH,
-            pyrCurr[static_cast<size_t>(level)].width,
-            pyrCurr[static_cast<size_t>(level)].height
-        );
-    }
-
-    FlowField rawResPrev, rawResNext;
-    std::vector<uint8_t> validPrev, validNext;
-
-    // 1. Estimate independent residual parallax mu^j (curr -> prev)
-    estimatePairwiseResidual(
-        pyrCurr,
-        pyrPrev,
-        pyrMasks,
-        misalignedMask,
-        principalFlow.coeffsPrev,
-        +1.0,
-        params,
-        rawResPrev,
-        validPrev
-    );
-
-    // 2. Estimate independent residual parallax mu^k (curr -> next)
-    estimatePairwiseResidual(
-        pyrCurr,
-        pyrNext,
-        pyrMasks,
-        misalignedMask,
-        principalFlow.coeffsNext,
-        +1.0,
-        params,
-        rawResNext,
-        validNext
-    );
-
-    SecondaryFlowResult result;
-    result.backwardFlow = FlowField(baseW, baseH);
-    result.forwardFlow = FlowField(baseW, baseH);
-    result.residualFlowPrev = FlowField(baseW, baseH);
-    result.residualFlowNext = FlowField(baseW, baseH);
-    result.validFlowMask.assign(basePixels, 0);
-
-    for (int y = 0; y < baseH; ++y) {
-        for (int x = 0; x < baseW; ++x) {
-            const size_t idx = static_cast<size_t>(y) * baseW + x;
-
-            const float muPrevU = misalignedMask[idx] ? rawResPrev.u[idx] : 0.0f;
-            const float muPrevV = misalignedMask[idx] ? rawResPrev.v[idx] : 0.0f;
-            const float muNextU = misalignedMask[idx] ? rawResNext.u[idx] : 0.0f;
-            const float muNextV = misalignedMask[idx] ? rawResNext.v[idx] : 0.0f;
-
-            result.residualFlowPrev.u[idx] = muPrevU;
-            result.residualFlowPrev.v[idx] = muPrevV;
-            result.residualFlowNext.u[idx] = muNextU;
-            result.residualFlowNext.v[idx] = muNextV;
-
-            result.backwardFlow.u[idx] = principalFlow.backwardFlow.u[idx] + muPrevU;
-            result.backwardFlow.v[idx] = principalFlow.backwardFlow.v[idx] + muPrevV;
-            result.forwardFlow.u[idx] = principalFlow.forwardFlow.u[idx] + muNextU;
-            result.forwardFlow.v[idx] = principalFlow.forwardFlow.v[idx] + muNextV;
-
-            if (validPrev[idx] && validNext[idx]) {
-                result.validFlowMask[idx] = 1;
-                result.validPixels.push_back(PixelCoord{x, y});
-            }
-        }
-    }
-
-    return result;
+    return estimateFromWarped(curr, warped, principalFlow, params);
 }

@@ -13,35 +13,35 @@ struct PixelCoord {
 };
 
 struct AlignmentParams {
-    // Effective threshold = max(minResidualThreshold, madMultiplier * 1.4826 * MAD(residuals))
-    bool useAdaptiveThreshold = true;
+    // Minimum distance (in pixels) from image borders for a warped lookup to be valid
+    float borderMargin = 1.0f;
+
+    // Legacy parameters retained for backward compatibility with existing unit tests
     double madMultiplier = 3.5;
-    double minResidualThreshold = 0.03; // Assumes [0, 1] normalized float intensities
-
-    // Optional spatial gradient normalization to suppress sub-pixel interpolation
-    // artifacts along sharp static edges: |I_curr - I_warped| / sqrt(Ix^2 + Iy^2 + gradientEps^2)
-    bool normalizeByGradient = false;
-    double gradientEps = 0.05;
-
-    // If true, pixels warped out-of-bounds in either prev or next are excluded from detection.
-    // If false, pixels valid in at least one neighboring frame are evaluated using valid frame(s).
-    bool requireBothValid = false;
+    double minResidualThreshold = 0.02;
+    double maxResidualThreshold = 0.25;
+    int morphCloseRadius = 1;
+    int morphOpenRadius = 1;
 };
 
 struct AlignmentResult {
-    FloatImage warpedPrev;                    // prev (t-1) aligned to curr (t)
-    FloatImage warpedNext;                    // next (t+1) aligned to curr (t)
-    std::vector<uint8_t> validPrev;           // 1 where backward warp fell inside prev bounds
-    std::vector<uint8_t> validNext;           // 1 where forward warp fell inside next bounds
-    FloatImage residualMap;                   // Per-pixel alignment residual error
-    double computedThreshold = 0.0;           // Threshold applied to classify misalignment
-    std::vector<uint8_t> misalignedMask;      // 1 = misaligned pixel, 0 = aligned or out-of-bounds
-    std::vector<PixelCoord> misalignedPixels; // Coordinates (x, y) where misalignedMask == 1
+    FloatImage warpedPrev;                    // I_j warped into curr frame: I_j(p + u_0^j(p))
+    FloatImage warpedNext;                    // I_k warped into curr frame: I_k(p + u_0^k(p))
+    std::vector<uint8_t> inBoundsMask;        // 1 = both warped lookups lie inside valid image bounds
+    std::vector<PixelCoord> inBoundsPixels;   // Coordinates where inBoundsMask == 1
+
+    // Legacy fields populated only when alignAndDetectMisaligned() is invoked
+    FloatImage residualErrorMap;
+    std::vector<uint8_t> misalignedMask;
+    std::vector<PixelCoord> misalignedPixels;
+    double adaptiveThreshold = 0.0;
 };
 
 class FrameAligner {
 public:
-    static AlignmentResult alignAndDetectMisaligned(
+    // Irani & Anandan Stage 2: Warps prev (j) and next (k) into reference frame curr (i)
+    // using the principal quadratic flow fields without intensity thresholding.
+    static AlignmentResult warpToReference(
         const FloatImage& prev,
         const FloatImage& curr,
         const FloatImage& next,
@@ -49,12 +49,21 @@ public:
         const AlignmentParams& params = AlignmentParams{}
     );
 
+    static AlignmentResult warpToReference(
+        const FloatImage& prev,
+        const FloatImage& curr,
+        const FloatImage& next,
+        const FlowField& backwardFlow,
+        const FlowField& forwardFlow,
+        const AlignmentParams& params = AlignmentParams{}
+    );
+
+    // Backward-compatible wrapper that performs warping + optional residual thresholding
     static AlignmentResult alignAndDetectMisaligned(
         const FloatImage& prev,
         const FloatImage& curr,
         const FloatImage& next,
-        const FlowField& forwardFlow,
-        const FlowField& backwardFlow,
+        const QuadraticFlowResult& principalFlow,
         const AlignmentParams& params = AlignmentParams{}
     );
 };

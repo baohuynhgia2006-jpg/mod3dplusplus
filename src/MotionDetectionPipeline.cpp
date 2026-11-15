@@ -7,15 +7,18 @@ MotionPipelineResult MotionDetectionPipeline::run(
     const Image& prevFrame,
     const Image& currFrame,
     const Image& nextFrame,
+    const MotionPipelineParams& params,
+    unsigned int rngSeed) {
+    return run(prevFrame, currFrame, nextFrame, std::vector<PixelCoord>{}, params, rngSeed);
+}
+
+MotionPipelineResult MotionDetectionPipeline::run(
+    const Image& prevFrame,
+    const Image& currFrame,
+    const Image& nextFrame,
     const PixelCoord& staticRefPixel,
     const MotionPipelineParams& params) {
-    return run(
-        prevFrame,
-        currFrame,
-        nextFrame,
-        std::vector<PixelCoord>{staticRefPixel},
-        params
-    );
+    return run(prevFrame, currFrame, nextFrame, std::vector<PixelCoord>{staticRefPixel}, params);
 }
 
 MotionPipelineResult MotionDetectionPipeline::run(
@@ -23,7 +26,8 @@ MotionPipelineResult MotionDetectionPipeline::run(
     const Image& currFrame,
     const Image& nextFrame,
     const std::vector<PixelCoord>& staticRefPixels,
-    const MotionPipelineParams& params) {
+    const MotionPipelineParams& params,
+    unsigned int rngSeed) {
     if (prevFrame.empty() || currFrame.empty() || nextFrame.empty()) {
         throw std::invalid_argument("All three input frames must be non-empty.");
     }
@@ -31,19 +35,14 @@ MotionPipelineResult MotionDetectionPipeline::run(
         nextFrame.width != currFrame.width || nextFrame.height != currFrame.height) {
         throw std::invalid_argument("All three input frames must have identical dimensions.");
     }
-    if (staticRefPixels.empty()) {
-        throw std::invalid_argument("At least one verified static reference pixel is required.");
-    }
 
-    // Pre-processing: Convert 8-bit RGB/grayscale frames to normalized [0, 1] float luminance
     FloatImage prevGray = ImageConverter::toFloatGrayscale(prevFrame, true);
     FloatImage currGray = ImageConverter::toFloatGrayscale(currFrame, true);
     FloatImage nextGray = ImageConverter::toFloatGrayscale(nextFrame, true);
 
     MotionPipelineResult result;
-    result.usedStaticSeeds = staticRefPixels;
 
-    // Stage 1: Fit principal 12-parameter quadratic optical flow field
+    // Stage 1: Principal 12-parameter quadratic flow (curr -> prev, curr -> next)
     result.principalFlow = QuadraticFlowEstimator::estimate(
         prevGray,
         currGray,
@@ -51,8 +50,8 @@ MotionPipelineResult MotionDetectionPipeline::run(
         params.quadraticParams
     );
 
-    // Stage 2: Warp frames using principal flow and extract misaligned pixels
-    result.alignment = FrameAligner::alignAndDetectMisaligned(
+    // Stage 2: Warp prev and next into curr's reference frame (Irani & Anandan)
+    result.alignment = FrameAligner::warpToReference(
         prevGray,
         currGray,
         nextGray,
@@ -60,32 +59,40 @@ MotionPipelineResult MotionDetectionPipeline::run(
         params.alignmentParams
     );
 
-    // Stage 3: Fit secondary pairwise optical flow fields over the misaligned region
-    result.secondaryFlow = SecondaryFlowEstimator::estimate(
-        prevGray,
+    // Stage 3: Dense residual parallax between curr and warped frames + composition correction
+    result.secondaryFlow = SecondaryFlowEstimator::estimateFromWarped(
         currGray,
-        nextGray,
-        result.principalFlow,
         result.alignment,
+        result.principalFlow,
         params.secondaryParams
     );
 
-    // Stage 4: Perform 3-frame planar-parallax rigidity test (Theorem 2, Eq. 8)
+    // Select static reference seed(s) if not explicitly provided
+    result.usedStaticSeeds = staticRefPixels.empty()
+        ? ParallaxRigidityTester::selectStaticSeeds(
+              result.principalFlow,
+              result.alignment,
+              result.secondaryFlow,
+              rngSeed,
+              params.rigidityParams)
+        : staticRefPixels;
+
+    // Stage 4: Three-way planar-parallax & Theorem 2 Eq. (8) rigidity test
     result.rigidity = ParallaxRigidityTester::test(
         result.principalFlow,
         result.alignment,
         result.secondaryFlow,
-        staticRefPixels,
+        result.usedStaticSeeds,
         params.rigidityParams
     );
 
-    // Stage 5: Generalize sparse moving detections across the full object via Graph Cut MRF
+    // Stage 5: ROI-cropped Graph Cut dense segmentation over neutral & moving regions
     result.segmentation = DenseMotionSegmenter::segment(
         currFrame,
         result.alignment,
         result.secondaryFlow,
         result.rigidity,
-        staticRefPixels,
+        result.usedStaticSeeds,
         params.segmentationParams
     );
 
@@ -148,7 +155,6 @@ Image MotionDetectionPipeline::renderOverlay(
         }
     }
 
-    // Draw small 3x3 green crosshairs at the verified static seed coordinates
     for (const auto& seed : staticRefPixels) {
         for (int dy = -1; dy <= 1; ++dy) {
             for (int dx = -1; dx <= 1; ++dx) {

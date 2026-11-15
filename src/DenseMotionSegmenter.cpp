@@ -6,7 +6,6 @@
 
 namespace {
 
-// Zero-per-node-allocation flat-array Dinic Max-Flow solver
 class FlatDinicMaxFlow {
 private:
     struct Edge {
@@ -130,38 +129,13 @@ FloatImage convertToNormalizedFloat(const Image& img) {
     }
     FloatImage fImg(img.width, img.height, img.channels);
     constexpr float inv255 = 1.0f / 255.0f;
-    for (size_t i = 0; i < img.data.size(); ++i) {
-        fImg.data[i] = static_cast<float>(img.data[i]) * inv255;
+    const int totalElems = static_cast<int>(img.data.size());
+
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < totalElems; ++i) {
+        fImg.data[static_cast<size_t>(i)] = static_cast<float>(img.data[static_cast<size_t>(i)]) * inv255;
     }
     return fImg;
-}
-
-std::vector<uint8_t> buildVerifiedStaticMask(
-    int width,
-    int height,
-    const std::vector<uint8_t>& misalignedMask,
-    const std::vector<uint8_t>& validFlowMask,
-    const std::vector<uint8_t>& movingMask,
-    const std::vector<PixelCoord>& staticRefPixels) {
-    const size_t numPixels = static_cast<size_t>(width) * height;
-    std::vector<uint8_t> verifiedStatic(numPixels, 0);
-
-    for (size_t i = 0; i < numPixels; ++i) {
-        if (misalignedMask[i] && validFlowMask[i] && !movingMask[i]) {
-            verifiedStatic[i] = 1;
-        }
-    }
-
-    for (const auto& pt : staticRefPixels) {
-        if (pt.x >= 0 && pt.x < width && pt.y >= 0 && pt.y < height) {
-            const size_t idx = static_cast<size_t>(pt.y) * width + pt.x;
-            if (!movingMask[idx]) {
-                verifiedStatic[idx] = 1;
-            }
-        }
-    }
-
-    return verifiedStatic;
 }
 
 inline double squaredColorDistance(const FloatImage& img, int y1, int x1, int y2, int x2) {
@@ -173,83 +147,19 @@ inline double squaredColorDistance(const FloatImage& img, int y1, int x1, int y2
     return distSq;
 }
 
-} // namespace
-
-DenseSegmentationResult DenseMotionSegmenter::segment(
-    const Image& referenceFrame,
-    const AlignmentResult& alignment,
-    const SecondaryFlowResult& secondaryFlow,
-    const ParallaxRigidityResult& rigidity,
-    const std::vector<PixelCoord>& staticRefPixels,
-    const DenseSegmentationParams& params) {
-    FloatImage floatRef = convertToNormalizedFloat(referenceFrame);
-    return segment(floatRef, alignment, secondaryFlow, rigidity, staticRefPixels, params);
-}
-
-DenseSegmentationResult DenseMotionSegmenter::segment(
-    const FloatImage& referenceFrame,
-    const AlignmentResult& alignment,
-    const SecondaryFlowResult& secondaryFlow,
-    const ParallaxRigidityResult& rigidity,
-    const std::vector<PixelCoord>& staticRefPixels,
-    const DenseSegmentationParams& params) {
-    if (referenceFrame.empty()) {
-        throw std::invalid_argument("referenceFrame must not be empty.");
-    }
-
-    const int w = referenceFrame.width;
-    const int h = referenceFrame.height;
-    const size_t numPixels = static_cast<size_t>(w) * h;
-
-    if (alignment.misalignedMask.size() != numPixels ||
-        secondaryFlow.validFlowMask.size() != numPixels ||
-        rigidity.movingMask.size() != numPixels) {
-        throw std::invalid_argument("Stage mask dimensions must match referenceFrame.");
-    }
-
-    std::vector<uint8_t> verifiedStatic = buildVerifiedStaticMask(
-        w,
-        h,
-        alignment.misalignedMask,
-        secondaryFlow.validFlowMask,
-        rigidity.movingMask,
-        staticRefPixels
-    );
-
-    return segment(
-        referenceFrame,
-        rigidity.movingMask,
-        verifiedStatic,
-        params,
-        alignment.misalignedMask
-    );
-}
-
-DenseSegmentationResult DenseMotionSegmenter::segment(
+DenseSegmentationResult runGraphCutCore(
     const FloatImage& referenceFrame,
     const std::vector<uint8_t>& movingSeedMask,
-    const std::vector<uint8_t>& verifiedStaticMask,
-    const DenseSegmentationParams& params,
-    const std::vector<uint8_t>& misalignedMask) {
-    if (referenceFrame.empty()) {
-        throw std::invalid_argument("referenceFrame must not be empty.");
-    }
-
+    const std::vector<uint8_t>& softStaticMask,
+    const std::vector<uint8_t>& hardStaticMask,
+    const DenseSegmentationParams& params) {
     const int w = referenceFrame.width;
     const int h = referenceFrame.height;
     const size_t numPixels = static_cast<size_t>(w) * h;
-
-    if (movingSeedMask.size() != numPixels || verifiedStaticMask.size() != numPixels) {
-        throw std::invalid_argument("Seed mask dimensions must match referenceFrame.");
-    }
-    if (!misalignedMask.empty() && misalignedMask.size() != numPixels) {
-        throw std::invalid_argument("misalignedMask dimensions must match referenceFrame.");
-    }
 
     DenseSegmentationResult result;
     result.denseMovingMask.assign(numPixels, 0);
 
-    // 1. Find bounding box of moving seeds (and misaligned region if provided) to crop the graph ROI
     int minX = w, minY = h, maxX = -1, maxY = -1;
     bool hasMovingSeed = false;
 
@@ -262,11 +172,6 @@ DenseSegmentationResult DenseMotionSegmenter::segment(
                 minY = std::min(minY, y);
                 maxX = std::max(maxX, x);
                 maxY = std::max(maxY, y);
-            } else if (!misalignedMask.empty() && misalignedMask[idx]) {
-                minX = std::min(minX, x);
-                minY = std::min(minY, y);
-                maxX = std::max(maxX, x);
-                maxY = std::max(maxY, y);
             }
         }
     }
@@ -275,7 +180,7 @@ DenseSegmentationResult DenseMotionSegmenter::segment(
         return result;
     }
 
-    const int pad = std::max(4, params.roiPadding);
+    const int pad = std::max(8, params.roiPadding);
     const int roiX0 = std::max(0, minX - pad);
     const int roiY0 = std::max(0, minY - pad);
     const int roiX1 = std::min(w - 1, maxX + pad);
@@ -298,19 +203,23 @@ DenseSegmentationResult DenseMotionSegmenter::segment(
     const int* dx = params.use8Connectivity ? dx8 : dx4;
     const int* dy = params.use8Connectivity ? dy8 : dy4;
 
-    // 2. Compute contrast normalization factor beta over the ROI
     double sumColorDiffSq = 0.0;
-    size_t edgeCount = 0;
+    long long edgeCount = 0;
+    std::vector<double> edgeDiffSq(roiPixels * static_cast<size_t>(numDirs), -1.0);
 
     for (int ry = 0; ry < roiH; ++ry) {
         const int y = roiY0 + ry;
         for (int rx = 0; rx < roiW; ++rx) {
             const int x = roiX0 + rx;
+            const size_t baseEdgeIdx = (static_cast<size_t>(ry) * roiW + rx) * static_cast<size_t>(numDirs);
+
             for (int d = 0; d < numDirs; ++d) {
                 const int nrx = rx + dx[d];
                 const int nry = ry + dy[d];
                 if (nrx >= 0 && nrx < roiW && nry >= 0 && nry < roiH) {
-                    sumColorDiffSq += squaredColorDistance(referenceFrame, y, x, roiY0 + nry, roiX0 + nrx);
+                    const double diffSq = squaredColorDistance(referenceFrame, y, x, roiY0 + nry, roiX0 + nrx);
+                    edgeDiffSq[baseEdgeIdx + static_cast<size_t>(d)] = diffSq;
+                    sumColorDiffSq += diffSq;
                     edgeCount++;
                 }
             }
@@ -322,13 +231,11 @@ DenseSegmentationResult DenseMotionSegmenter::segment(
     const double beta = (effectiveMeanDiffSq > 1e-12) ? (1.0 / (2.0 * effectiveMeanDiffSq)) : 0.0;
     result.computedBeta = beta;
 
-    // 3. Construct ROI-cropped flat-array flow graph
     const int sourceNode = static_cast<int>(roiPixels);
     const int sinkNode = static_cast<int>(roiPixels + 1);
     const size_t estEdges = roiPixels * (params.use8Connectivity ? 10 : 6);
     FlatDinicMaxFlow graph(static_cast<int>(roiPixels + 2), estEdges);
 
-    // Add unary t-links (clamping interior ROI crop borders to Sink so segmentation never leaks outside)
     for (int ry = 0; ry < roiH; ++ry) {
         const int y = roiY0 + ry;
         const bool onCropBorderY = (ry == 0 && roiY0 > 0) || (ry == roiH - 1 && roiY1 < h - 1);
@@ -342,31 +249,25 @@ DenseSegmentationResult DenseMotionSegmenter::segment(
 
             if (movingSeedMask[fullIdx]) {
                 graph.addDirectedEdge(sourceNode, roiNode, params.movingSeedWeight);
-            } else if (verifiedStaticMask[fullIdx] || onCropBorderX || onCropBorderY) {
+            } else if ((!hardStaticMask.empty() && hardStaticMask[fullIdx]) || onCropBorderX || onCropBorderY) {
                 graph.addDirectedEdge(roiNode, sinkNode, params.staticSeedWeight);
-            } else {
-                const bool isAligned = (!misalignedMask.empty() && !misalignedMask[fullIdx]);
-                const double prior = isAligned ? params.alignedBackgroundPrior : params.unknownStaticPrior;
-                if (prior > 0.0) {
-                    graph.addDirectedEdge(roiNode, sinkNode, prior);
-                }
+            } else if (!softStaticMask.empty() && softStaticMask[fullIdx]) {
+                graph.addDirectedEdge(roiNode, sinkNode, params.verifiedStaticWeight);
+            } else if (params.unknownStaticPrior > 0.0) {
+                graph.addDirectedEdge(roiNode, sinkNode, params.unknownStaticPrior);
             }
         }
     }
 
-    // Add contrast-sensitive pairwise n-links inside the ROI
     for (int ry = 0; ry < roiH; ++ry) {
-        const int y = roiY0 + ry;
         for (int rx = 0; rx < roiW; ++rx) {
-            const int x = roiX0 + rx;
             const int u = ry * roiW + rx;
+            const size_t baseEdgeIdx = static_cast<size_t>(u) * static_cast<size_t>(numDirs);
 
             for (int d = 0; d < numDirs; ++d) {
-                const int nrx = rx + dx[d];
-                const int nry = ry + dy[d];
-                if (nrx >= 0 && nrx < roiW && nry >= 0 && nry < roiH) {
-                    const int v = nry * roiW + nrx;
-                    const double diffSq = squaredColorDistance(referenceFrame, y, x, roiY0 + nry, roiX0 + nrx);
+                const double diffSq = edgeDiffSq[baseEdgeIdx + static_cast<size_t>(d)];
+                if (diffSq >= 0.0) {
+                    const int v = (ry + dy[d]) * roiW + (rx + dx[d]);
                     const double invDist = params.use8Connectivity ? invDist8[d] : (1.0 / dist4[d]);
                     const double weight = params.lambda * invDist * std::exp(-beta * diffSq);
                     graph.addUndirectedEdge(u, v, weight);
@@ -375,10 +276,8 @@ DenseSegmentationResult DenseMotionSegmenter::segment(
         }
     }
 
-    // 4. Solve Min-Cut / Max-Flow
     result.minCutEnergy = graph.maxFlow(sourceNode, sinkNode);
 
-    // 5. Map ROI Source-reachable nodes back to full-image coordinates
     for (int ry = 0; ry < roiH; ++ry) {
         const int y = roiY0 + ry;
         for (int rx = 0; rx < roiW; ++rx) {
@@ -392,4 +291,75 @@ DenseSegmentationResult DenseMotionSegmenter::segment(
     }
 
     return result;
+}
+
+} // namespace
+
+DenseSegmentationResult DenseMotionSegmenter::segment(
+    const Image& referenceFrame,
+    const AlignmentResult& alignment,
+    const SecondaryFlowResult& secondaryFlow,
+    const ParallaxRigidityResult& rigidity,
+    const std::vector<PixelCoord>& staticRefPixels,
+    const DenseSegmentationParams& params) {
+    FloatImage floatRef = convertToNormalizedFloat(referenceFrame);
+    return segment(floatRef, alignment, secondaryFlow, rigidity, staticRefPixels, params);
+}
+
+DenseSegmentationResult DenseMotionSegmenter::segment(
+    const FloatImage& referenceFrame,
+    const AlignmentResult& alignment,
+    const SecondaryFlowResult& secondaryFlow,
+    const ParallaxRigidityResult& rigidity,
+    const std::vector<PixelCoord>& staticRefPixels,
+    const DenseSegmentationParams& params) {
+    (void)alignment;
+    (void)secondaryFlow;
+
+    if (referenceFrame.empty()) {
+        throw std::invalid_argument("referenceFrame must not be empty.");
+    }
+
+    const int w = referenceFrame.width;
+    const int h = referenceFrame.height;
+    const size_t numPixels = static_cast<size_t>(w) * h;
+
+    if (rigidity.movingMask.size() != numPixels || rigidity.rigidStaticMask.size() != numPixels) {
+        throw std::invalid_argument("Rigidity mask dimensions must match referenceFrame.");
+    }
+
+    std::vector<uint8_t> hardStaticMask(numPixels, 0);
+    for (const auto& pt : staticRefPixels) {
+        if (pt.x >= 0 && pt.x < w && pt.y >= 0 && pt.y < h) {
+            const size_t idx = static_cast<size_t>(pt.y) * w + pt.x;
+            if (!rigidity.movingMask[idx]) {
+                hardStaticMask[idx] = 1;
+            }
+        }
+    }
+
+    return runGraphCutCore(
+        referenceFrame,
+        rigidity.movingMask,
+        rigidity.rigidStaticMask,
+        hardStaticMask,
+        params
+    );
+}
+
+DenseSegmentationResult DenseMotionSegmenter::segment(
+    const FloatImage& referenceFrame,
+    const std::vector<uint8_t>& movingSeedMask,
+    const std::vector<uint8_t>& verifiedStaticMask,
+    const DenseSegmentationParams& params,
+    const std::vector<uint8_t>& misalignedMask) {
+    (void)misalignedMask;
+    if (referenceFrame.empty()) {
+        throw std::invalid_argument("referenceFrame must not be empty.");
+    }
+    const size_t numPixels = static_cast<size_t>(referenceFrame.width) * referenceFrame.height;
+    if (movingSeedMask.size() != numPixels || verifiedStaticMask.size() != numPixels) {
+        throw std::invalid_argument("Seed mask dimensions must match referenceFrame.");
+    }
+    return runGraphCutCore(referenceFrame, movingSeedMask, {}, verifiedStaticMask, params);
 }

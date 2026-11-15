@@ -29,7 +29,7 @@ cmake --build build --config Release
 3. Follow the format to run on any sequence of images (seeds can be arbitrarily chosen):
 
 ```bash
-.\build\Release\motion_seg_cli.exe --input path\to\input --output path\to\output  --seed 45,60 --seed 210,85
+.\build\Release\motion_seg_cli.exe --input path\to\input --output path\to\output
 ```
 
 ## ACKNOWLEDGEMENT
