@@ -8,6 +8,7 @@
 #include "ParallaxRigidityTester.h"
 #include "QuadraticFlowEstimator.h"
 #include "SecondaryFlowEstimator.h"
+#include <cstdint>
 #include <vector>
 
 struct MotionPipelineParams {
@@ -56,7 +57,19 @@ public:
     );
 
     static Image renderBinaryMask(
+        const std::vector<uint8_t>& mask,
+        int width,
+        int height
+    );
+
+    static Image renderBinaryMask(
         const DenseSegmentationResult& segmentation,
+        int width,
+        int height
+    );
+
+    static Image renderParallaxMask(
+        const ParallaxRigidityResult& rigidity,
         int width,
         int height
     );
@@ -66,6 +79,13 @@ public:
         const DenseSegmentationResult& segmentation,
         const std::vector<PixelCoord>& staticRefPixels = {},
         float overlayAlpha = 0.45f
+    );
+
+    static Image renderParallaxOverlay(
+        const Image& referenceFrame,
+        const ParallaxRigidityResult& rigidity,
+        const std::vector<PixelCoord>& staticRefPixels = {},
+        float overlayAlpha = 0.65f
     );
 };
 

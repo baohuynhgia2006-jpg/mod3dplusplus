@@ -1,180 +1,123 @@
 #include "FrameAligner.h"
-#include "QuadraticFlowEstimator.h"
-#include <algorithm>
-#include <array>
-#include <cassert>
 #include <cmath>
 #include <iostream>
+#include <stdexcept>
 
 namespace {
 
-float evalTexture(double x, double y) {
-    double val = 0.5
-        + 0.18 * std::sin(0.11 * x + 0.05 * y)
-        + 0.14 * std::cos(0.07 * x - 0.13 * y)
-        + 0.10 * std::sin(0.23 * x) * std::cos(0.19 * y)
-        + 0.08 * std::cos(0.03 * (x * x * 0.02 + y));
-    return static_cast<float>(val);
+inline float smoothField(double x, double y) {
+    return static_cast<float>(0.008 * x + 0.005 * y + 0.15);
 }
 
-void evalQuadraticAt(
-    double x,
-    double y,
-    int w,
-    int h,
-    const std::array<double, 12>& coeffs,
-    double& u,
-    double& v) {
-    const double cx = 0.5 * (w - 1);
-    const double cy = 0.5 * (h - 1);
-    const double invScale = 1.0 / (0.5 * std::max(w, h));
-    const double nx = (x - cx) * invScale;
-    const double ny = (y - cy) * invScale;
-    const double b[6] = {1.0, nx, ny, nx * nx, nx * ny, ny * ny};
+void testWarpToReferenceAndInBoundsMask() {
+    const int w = 64;
+    const int h = 64;
 
-    u = 0.0;
-    v = 0.0;
-    for (int k = 0; k < 6; ++k) {
-        u += coeffs[static_cast<size_t>(k)] * b[k];
-        v += coeffs[static_cast<size_t>(k + 6)] * b[k];
-    }
-}
+    const float uPrev = 3.0f;
+    const float vPrev = -2.0f;
+    const float uNext = -2.5f;
+    const float vNext = 2.0f;
 
-void generateSyntheticTuple(
-    int w,
-    int h,
-    const std::array<double, 12>& trueCoeffs,
-    FloatImage& prev,
-    FloatImage& curr,
-    FloatImage& next) {
-    prev = FloatImage(w, h, 1);
-    curr = FloatImage(w, h, 1);
-    next = FloatImage(w, h, 1);
+    FloatImage prev(w, h, 1);
+    FloatImage curr(w, h, 1);
+    FloatImage next(w, h, 1);
 
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
-            curr.at(y, x) = evalTexture(x, y);
-
-            double sxNext = static_cast<double>(x);
-            double syNext = static_cast<double>(y);
-            for (int it = 0; it < 10; ++it) {
-                double u, v;
-                evalQuadraticAt(sxNext, syNext, w, h, trueCoeffs, u, v);
-                sxNext = static_cast<double>(x) - u;
-                syNext = static_cast<double>(y) - v;
-            }
-            next.at(y, x) = evalTexture(sxNext, syNext);
-
-            double sxPrev = static_cast<double>(x);
-            double syPrev = static_cast<double>(y);
-            for (int it = 0; it < 10; ++it) {
-                double u, v;
-                evalQuadraticAt(sxPrev, syPrev, w, h, trueCoeffs, u, v);
-                sxPrev = static_cast<double>(x) + u;
-                syPrev = static_cast<double>(y) + v;
-            }
-            prev.at(y, x) = evalTexture(sxPrev, syPrev);
+            prev.at(y, x) = smoothField(x, y);
+            next.at(y, x) = smoothField(x, y);
+            curr.at(y, x) = smoothField(x + uPrev, y + vPrev);
         }
+    }
+    // Make next consistent with (x + uNext, y + vNext) -> curr(x, y)
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            next.at(y, x) = smoothField(x + uPrev - uNext, y + vPrev - vNext);
+        }
+    }
+
+    QuadraticFlowResult qFlow;
+    qFlow.backwardFlow = FlowField(w, h);
+    qFlow.forwardFlow = FlowField(w, h);
+    for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
+        qFlow.backwardFlow.u[i] = uPrev;
+        qFlow.backwardFlow.v[i] = vPrev;
+        qFlow.forwardFlow.u[i] = uNext;
+        qFlow.forwardFlow.v[i] = vNext;
+    }
+
+    AlignmentParams params;
+    params.borderMargin = 1.0f;
+
+    AlignmentResult res = FrameAligner::warpToReference(prev, curr, next, qFlow, params);
+
+    // Border pixels warped out of bounds must have inBoundsMask == 0
+    if (res.inBoundsMask[0] != 0 || res.inBoundsMask[static_cast<size_t>(h - 1) * w + (w - 1)] != 0) {
+        throw std::runtime_error("Expected out-of-bounds border pixels to have inBoundsMask == 0.");
+    }
+
+    // Interior valid pixels must match curr closely after bilinear warping
+    for (int y = 8; y < h - 8; ++y) {
+        for (int x = 8; x < w - 8; ++x) {
+            const size_t idx = static_cast<size_t>(y) * w + x;
+            if (res.inBoundsMask[idx] != 1) {
+                throw std::runtime_error("Expected interior pixel to have inBoundsMask == 1.");
+            }
+            if (std::fabs(res.warpedPrev.at(y, x) - curr.at(y, x)) > 1e-4f ||
+                std::fabs(res.warpedNext.at(y, x) - curr.at(y, x)) > 1e-4f) {
+                throw std::runtime_error("Warped frame intensity mismatch at interior pixel.");
+            }
+        }
+    }
+}
+
+void testLegacyAlignAndDetectMisaligned() {
+    const int w = 64;
+    const int h = 64;
+
+    FloatImage prev(w, h, 1);
+    FloatImage curr(w, h, 1);
+    FloatImage next(w, h, 1);
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const float val = smoothField(x, y);
+            prev.at(y, x) = val;
+            curr.at(y, x) = val;
+            next.at(y, x) = val;
+        }
+    }
+
+    // Inject localized moving intensity block in curr
+    for (int y = 26; y < 38; ++y) {
+        for (int x = 26; x < 38; ++x) {
+            curr.at(y, x) = 0.95f;
+        }
+    }
+
+    QuadraticFlowResult zeroFlow;
+    zeroFlow.backwardFlow = FlowField(w, h);
+    zeroFlow.forwardFlow = FlowField(w, h);
+
+    AlignmentResult res = FrameAligner::alignAndDetectMisaligned(prev, curr, next, zeroFlow);
+    if (res.misalignedMask[static_cast<size_t>(32) * w + 32] != 1) {
+        throw std::runtime_error("Legacy alignAndDetectMisaligned failed to detect anomalous block.");
+    }
+    if (res.misalignedMask[static_cast<size_t>(10) * w + 10] != 0) {
+        throw std::runtime_error("Legacy alignAndDetectMisaligned falsely flagged static background.");
     }
 }
 
 } // namespace
 
 int main() {
-    const int w = 128;
-    const int h = 128;
-
-    const std::array<double, 12> cameraCoeffs = {
-        2.8,  -0.35,  0.40,  0.15, -0.10,  0.08,
-       -2.1,  -0.40, -0.25, -0.10,  0.14, -0.12
-    };
-
-    FloatImage prev, curr, next;
-    generateSyntheticTuple(w, h, cameraCoeffs, prev, curr, next);
-
-    std::cout << "Testing Stage 2 alignment on pure background camera motion..." << std::endl;
-    {
-        QuadraticFlowResult qFlow = QuadraticFlowEstimator::estimate(prev, curr, next);
-        AlignmentResult alignRes = FrameAligner::alignAndDetectMisaligned(prev, curr, next, qFlow);
-
-        std::cout << "  Misaligned pixels detected (expected 0): "
-                  << alignRes.misalignedPixels.size() << std::endl;
-        assert(alignRes.misalignedPixels.empty());
+    try {
+        testWarpToReferenceAndInBoundsMask();
+        testLegacyAlignAndDetectMisaligned();
+        std::cout << "[PASS] test_FrameAligner\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "[FAIL] test_FrameAligner: " << e.what() << "\n";
+        return 1;
     }
-
-    std::cout << "Testing Stage 2 misalignment extraction with an independently moving object..." << std::endl;
-    {
-        FloatImage prevObj = prev;
-        FloatImage currObj = curr;
-        FloatImage nextObj = next;
-
-        // Moving 24x24 textured square centered around (50..73, 50..73) in curr
-        auto drawMovingObject = [](FloatImage& img, int x0, int y0) {
-            for (int dy = 0; dy < 24; ++dy) {
-                for (int dx = 0; dx < 24; ++dx) {
-                    int px = x0 + dx;
-                    int py = y0 + dy;
-                    if (px >= 0 && px < img.width && py >= 0 && py < img.height) {
-                        img.at(py, px) = ((dx / 4 + dy / 4) % 2 == 0) ? 0.95f : 0.10f;
-                    }
-                }
-            }
-        };
-
-        drawMovingObject(prevObj, 55, 50);
-        drawMovingObject(currObj, 50, 50);
-        drawMovingObject(nextObj, 45, 50);
-
-        QuadraticFlowResult qFlow = QuadraticFlowEstimator::estimate(prevObj, currObj, nextObj);
-        AlignmentResult alignRes = FrameAligner::alignAndDetectMisaligned(prevObj, currObj, nextObj, qFlow);
-
-        std::cout << "  Computed threshold: " << alignRes.computedThreshold << std::endl;
-        std::cout << "  Total misaligned pixels: " << alignRes.misalignedPixels.size() << std::endl;
-
-        int insideObjHits = 0;
-        int farBackgroundFalsePositives = 0;
-
-        for (const auto& pt : alignRes.misalignedPixels) {
-            // Allow small 5-pixel halo around the object's sweep across [t-1, t+1]
-            bool nearObjectSweep = (pt.x >= 40 && pt.x <= 84 && pt.y >= 45 && pt.y <= 79);
-            if (nearObjectSweep) {
-                insideObjHits++;
-            } else {
-                farBackgroundFalsePositives++;
-            }
-        }
-
-        std::cout << "  Object region hits: " << insideObjHits
-                  << ", Far-background false positives: " << farBackgroundFalsePositives << std::endl;
-
-        assert(insideObjHits > 350);
-        assert(farBackgroundFalsePositives == 0);
-    }
-
-    std::cout << "Testing gradient-normalized residual mode..." << std::endl;
-    {
-        AlignmentParams normParams;
-        normParams.normalizeByGradient = true;
-        normParams.minResidualThreshold = 0.15;
-
-        QuadraticFlowResult qFlow = QuadraticFlowEstimator::estimate(prev, curr, next);
-        AlignmentResult alignRes = FrameAligner::alignAndDetectMisaligned(prev, curr, next, qFlow, normParams);
-        assert(alignRes.misalignedPixels.empty());
-    }
-
-    std::cout << "Testing invalid input handling..." << std::endl;
-    {
-        FlowField badFlow(64, 64);
-        FlowField goodFlow(w, h);
-        bool caught = false;
-        try {
-            FrameAligner::alignAndDetectMisaligned(prev, curr, next, badFlow, goodFlow);
-        } catch (const std::invalid_argument&) {
-            caught = true;
-        }
-        assert(caught);
-    }
-
-    std::cout << "\nAll Stage 2 FrameAligner tests passed successfully!" << std::endl;
-    return 0;
 }

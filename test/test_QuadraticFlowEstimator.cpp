@@ -1,176 +1,159 @@
 #include "QuadraticFlowEstimator.h"
-#include <array>
-#include <cassert>
+#include <string>
 #include <cmath>
 #include <iostream>
+#include <stdexcept>
 
 namespace {
 
-// Continuous multi-frequency texture for exact sub-pixel synthetic frame generation
-float evalTexture(double x, double y) {
-    double val = 0.5
-        + 0.18 * std::sin(0.11 * x + 0.05 * y)
-        + 0.14 * std::cos(0.07 * x - 0.13 * y)
-        + 0.10 * std::sin(0.23 * x) * std::cos(0.19 * y)
-        + 0.08 * std::cos(0.03 * (x * x * 0.02 + y));
-    return static_cast<float>(val);
+inline float syntheticPattern(double x, double y) {
+    const double v = 0.5
+        + 0.22 * std::sin(0.11 * x + 0.04 * y)
+        + 0.18 * std::cos(0.05 * x - 0.12 * y)
+        + 0.10 * std::sin(0.19 * x - 0.17 * y);
+    return static_cast<float>(v);
 }
 
-void evalQuadraticAt(
-    double x,
-    double y,
-    int w,
-    int h,
-    const std::array<double, 12>& coeffs,
-    double& u,
-    double& v) {
-    const double cx = 0.5 * (w - 1);
-    const double cy = 0.5 * (h - 1);
-    const double invScale = 1.0 / (0.5 * std::max(w, h));
-    const double nx = (x - cx) * invScale;
-    const double ny = (y - cy) * invScale;
-    const double b[6] = {1.0, nx, ny, nx * nx, nx * ny, ny * ny};
+void testCoupledEvaluationFormula() {
+    QuadraticCoeffs c;
+    c.a = 1.5;
+    c.b = -0.01;
+    c.c = 0.02;
+    c.d = -2.0;
+    c.e = 0.015;
+    c.f = -0.008;
+    c.g = 3.0e-5;
+    c.h = -2.5e-5;
 
-    u = 0.0;
-    v = 0.0;
-    for (int k = 0; k < 6; ++k) {
-        u += coeffs[static_cast<size_t>(k)] * b[k];
-        v += coeffs[static_cast<size_t>(k + 6)] * b[k];
+    const double x = 42.0;
+    const double y = 73.0;
+    const double expectedU = c.a + c.b * x + c.c * y + c.g * x * x + c.h * x * y;
+    const double expectedV = c.d + c.e * x + c.f * y + c.g * x * y + c.h * y * y;
+
+    if (std::fabs(c.evalU(x, y) - expectedU) > 1e-12 ||
+        std::fabs(c.evalV(x, y) - expectedV) > 1e-12) {
+        throw std::runtime_error("QuadraticCoeffs::evalU/evalV violated 8-DOF coupled formula.");
     }
 }
 
-// Synthesizes prev (t-1), curr (t), and next (t+1) such that:
-// next(x + u(x,y), y + v(x,y)) == curr(x,y)
-// prev(x - u(x,y), y - v(x,y)) == curr(x,y)
-void generateSyntheticTuple(
-    int w,
-    int h,
-    const std::array<double, 12>& trueCoeffs,
-    FloatImage& prev,
-    FloatImage& curr,
-    FloatImage& next) {
-    prev = FloatImage(w, h, 1);
-    curr = FloatImage(w, h, 1);
-    next = FloatImage(w, h, 1);
+void testCoupledQuadraticRecovery() {
+    const int w = 128;
+    const int h = 128;
+
+    QuadraticCoeffs gt;
+    gt.a = 1.6;
+    gt.b = -0.008;
+    gt.c = 0.005;
+    gt.d = -1.3;
+    gt.e = 0.004;
+    gt.f = -0.007;
+    gt.g = 2.0e-5;
+    gt.h = -1.5e-5;
+
+    FloatImage target(w, h, 1);
+    FloatImage ref(w, h, 1);
 
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
-            curr.at(y, x) = evalTexture(x, y);
-
-            // Invert Phi_+(x, y) = (x + u(x,y), y + v(x,y)) via fixed-point iteration
-            double sxNext = static_cast<double>(x);
-            double syNext = static_cast<double>(y);
-            for (int it = 0; it < 10; ++it) {
-                double u, v;
-                evalQuadraticAt(sxNext, syNext, w, h, trueCoeffs, u, v);
-                sxNext = static_cast<double>(x) - u;
-                syNext = static_cast<double>(y) - v;
-            }
-            next.at(y, x) = evalTexture(sxNext, syNext);
-
-            // Invert Phi_-(x, y) = (x - u(x,y), y - v(x,y)) via fixed-point iteration
-            double sxPrev = static_cast<double>(x);
-            double syPrev = static_cast<double>(y);
-            for (int it = 0; it < 10; ++it) {
-                double u, v;
-                evalQuadraticAt(sxPrev, syPrev, w, h, trueCoeffs, u, v);
-                sxPrev = static_cast<double>(x) + u;
-                syPrev = static_cast<double>(y) + v;
-            }
-            prev.at(y, x) = evalTexture(sxPrev, syPrev);
+            target.at(y, x) = syntheticPattern(static_cast<double>(x), static_cast<double>(y));
+            const double u = gt.evalU(static_cast<double>(x), static_cast<double>(y));
+            const double v = gt.evalV(static_cast<double>(x), static_cast<double>(y));
+            ref.at(y, x) = syntheticPattern(static_cast<double>(x) + u, static_cast<double>(y) + v);
         }
     }
-}
 
-double computeFlowRMSE(const FlowField& est, const FlowField& gt, int borderMargin = 10) {
-    double sqSum = 0.0;
+    QuadraticFlowParams params;
+    params.pyramidLevels = 4;
+    params.maxIterationsPerLevel = 20;
+
+    QuadraticCoeffs est;
+    FlowField flow = QuadraticFlowEstimator::estimatePair(ref, target, est, params);
+
+    double sumErr = 0.0;
     int count = 0;
-    for (int y = borderMargin; y < gt.height - borderMargin; ++y) {
-        for (int x = borderMargin; x < gt.width - borderMargin; ++x) {
-            double du = static_cast<double>(est.atU(y, x) - gt.atU(y, x));
-            double dv = static_cast<double>(est.atV(y, x) - gt.atV(y, x));
-            sqSum += du * du + dv * dv;
+    for (int y = 10; y < h - 10; ++y) {
+        for (int x = 10; x < w - 10; ++x) {
+            const double gtU = gt.evalU(x, y);
+            const double gtV = gt.evalV(x, y);
+            const double err = std::hypot(flow.atU(y, x) - gtU, flow.atV(y, x) - gtV);
+            sumErr += err;
             count++;
         }
     }
-    return std::sqrt(sqSum / static_cast<double>(count));
+
+    const double meanEpe = sumErr / static_cast<double>(count);
+    if (meanEpe > 0.05) {
+        throw std::runtime_error("Coupled 8-DOF flow mean EPE too high: " + std::to_string(meanEpe));
+    }
+    if (std::fabs(est.g - gt.g) > 1e-5 || std::fabs(est.h - gt.h) > 1e-5) {
+        throw std::runtime_error("Coupled quadratic terms g/h did not converge accurately.");
+    }
+}
+
+void testOutlierRobustnessThreeFrame() {
+    const int w = 128;
+    const int h = 128;
+
+    const double uPrev = 1.5, vPrev = -1.0;
+    const double uNext = -1.5, vNext = 1.0;
+
+    FloatImage prev(w, h, 1);
+    FloatImage curr(w, h, 1);
+    FloatImage next(w, h, 1);
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            prev.at(y, x) = syntheticPattern(x, y);
+            curr.at(y, x) = syntheticPattern(x + uPrev, y + vPrev);
+            next.at(y, x) = syntheticPattern(x + uPrev - uNext, y + vPrev - vNext);
+        }
+    }
+
+    // Inject an independently moving outlier square into curr
+    for (int y = 50; y < 74; ++y) {
+        for (int x = 50; x < 74; ++x) {
+            curr.at(y, x) = 0.95f;
+        }
+    }
+
+    QuadraticFlowResult res = QuadraticFlowEstimator::estimate(prev, curr, next);
+
+    const double errPrev = std::hypot(res.backwardFlow.atU(20, 20) - uPrev,
+                                      res.backwardFlow.atV(20, 20) - vPrev);
+    const double errNext = std::hypot(res.forwardFlow.atU(20, 20) - uNext,
+                                      res.forwardFlow.atV(20, 20) - vNext);
+
+    if (errPrev > 0.15 || errNext > 0.15) {
+        throw std::runtime_error("Tukey IRLS failed to reject moving foreground outlier block.");
+    }
+}
+
+void testInputValidation() {
+    FloatImage emptyImg;
+    FloatImage validImg(32, 32, 1);
+    bool threw = false;
+    try {
+        QuadraticFlowEstimator::estimate(emptyImg, validImg, validImg);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    if (!threw) {
+        throw std::runtime_error("Expected std::invalid_argument on empty frame.");
+    }
 }
 
 } // namespace
 
 int main() {
-    const int w = 128;
-    const int h = 128;
-
-    // Ground-truth quadratic flow: translation + affine rotation/zoom + quadratic curvature
-    const std::array<double, 12> trueCoeffs = {
-        3.2,  -0.45,  0.60,  0.25, -0.18,  0.12,
-       -2.4,  -0.55, -0.35, -0.15,  0.22, -0.20
-    };
-
-    std::cout << "Generating synthetic 3-frame sequence with quadratic camera motion..." << std::endl;
-    FloatImage prev, curr, next;
-    generateSyntheticTuple(w, h, trueCoeffs, prev, curr, next);
-
-    FlowField gtForward = QuadraticFlowEstimator::evaluateFlow(w, h, trueCoeffs, +1.0);
-    FlowField gtBackward = QuadraticFlowEstimator::evaluateFlow(w, h, trueCoeffs, -1.0);
-
-    std::cout << "Testing Stage 1 quadratic flow estimation on clean sequence..." << std::endl;
-    {
-        QuadraticFlowResult res = QuadraticFlowEstimator::estimate(prev, curr, next);
-
-        double fwdRmse = computeFlowRMSE(res.forwardFlow, gtForward);
-        double bwdRmse = computeFlowRMSE(res.backwardFlow, gtBackward);
-        std::cout << "  Forward Flow RMSE:  " << fwdRmse << " px" << std::endl;
-        std::cout << "  Backward Flow RMSE: " << bwdRmse << " px" << std::endl;
-
-        assert(fwdRmse < 0.05);
-        assert(bwdRmse < 0.05);
+    try {
+        testCoupledEvaluationFormula();
+        testCoupledQuadraticRecovery();
+        testOutlierRobustnessThreeFrame();
+        testInputValidation();
+        std::cout << "[PASS] test_QuadraticFlowEstimator\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "[FAIL] test_QuadraticFlowEstimator: " << e.what() << "\n";
+        return 1;
     }
-
-    std::cout << "Testing robust outlier rejection with an independently moving foreground object..." << std::endl;
-    {
-        FloatImage prevObj = prev;
-        FloatImage currObj = curr;
-        FloatImage nextObj = next;
-
-        // Paste a 28x28 bright foreground block moving in the opposite direction
-        // (leftward by 4 px/frame instead of rightward by ~3.2 px/frame)
-        auto drawBlock = [](FloatImage& img, int x0, int y0) {
-            for (int dy = 0; dy < 28; ++dy) {
-                for (int dx = 0; dx < 28; ++dx) {
-                    int px = x0 + dx;
-                    int py = y0 + dy;
-                    if (px >= 0 && px < img.width && py >= 0 && py < img.height) {
-                        img.at(py, px) = 0.95f - 0.1f * ((dx + dy) % 2);
-                    }
-                }
-            }
-        };
-
-        drawBlock(prevObj, 54, 50);
-        drawBlock(currObj, 50, 50);
-        drawBlock(nextObj, 46, 50);
-
-        QuadraticFlowResult resObj = QuadraticFlowEstimator::estimate(prevObj, currObj, nextObj);
-        double bgRmse = computeFlowRMSE(resObj.forwardFlow, gtForward);
-        std::cout << "  Background Flow RMSE with moving object present: " << bgRmse << " px" << std::endl;
-
-        assert(bgRmse < 0.08);
-    }
-
-    std::cout << "Testing invalid input handling..." << std::endl;
-    {
-        FloatImage emptyImg;
-        bool caught = false;
-        try {
-            QuadraticFlowEstimator::estimate(emptyImg, curr, next);
-        } catch (const std::invalid_argument&) {
-            caught = true;
-        }
-        assert(caught);
-    }
-
-    std::cout << "\nAll Stage 1 QuadraticFlowEstimator tests passed successfully!" << std::endl;
-    return 0;
 }

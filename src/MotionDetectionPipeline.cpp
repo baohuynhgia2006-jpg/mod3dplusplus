@@ -42,7 +42,7 @@ MotionPipelineResult MotionDetectionPipeline::run(
 
     MotionPipelineResult result;
 
-    // Stage 1: Principal 12-parameter quadratic flow (curr -> prev, curr -> next)
+    // Stage 1: Principal 8-DOF coupled planar-quadratic flow (curr -> prev, curr -> next)
     result.principalFlow = QuadraticFlowEstimator::estimate(
         prevGray,
         currGray,
@@ -100,21 +100,35 @@ MotionPipelineResult MotionDetectionPipeline::run(
 }
 
 Image MotionDetectionPipeline::renderBinaryMask(
-    const DenseSegmentationResult& segmentation,
+    const std::vector<uint8_t>& mask,
     int width,
     int height) {
     if (width <= 0 || height <= 0) {
         throw std::invalid_argument("Output mask dimensions must be positive.");
     }
-    if (segmentation.denseMovingMask.size() != static_cast<size_t>(width) * height) {
-        throw std::invalid_argument("Segmentation mask size does not match width * height.");
+    if (mask.size() != static_cast<size_t>(width) * height) {
+        throw std::invalid_argument("Mask size does not match width * height.");
     }
 
     Image maskImg(width, height, 1);
     for (size_t i = 0; i < maskImg.data.size(); ++i) {
-        maskImg.data[i] = segmentation.denseMovingMask[i] ? 255 : 0;
+        maskImg.data[i] = mask[i] ? 255 : 0;
     }
     return maskImg;
+}
+
+Image MotionDetectionPipeline::renderBinaryMask(
+    const DenseSegmentationResult& segmentation,
+    int width,
+    int height) {
+    return renderBinaryMask(segmentation.denseMovingMask, width, height);
+}
+
+Image MotionDetectionPipeline::renderParallaxMask(
+    const ParallaxRigidityResult& rigidity,
+    int width,
+    int height) {
+    return renderBinaryMask(rigidity.movingMask, width, height);
 }
 
 Image MotionDetectionPipeline::renderOverlay(
@@ -155,9 +169,68 @@ Image MotionDetectionPipeline::renderOverlay(
         }
     }
 
+    // Draw small green crosshairs at the verified static seed coordinates
     for (const auto& seed : staticRefPixels) {
-        for (int dy = -1; dy <= 1; ++dy) {
-            for (int dx = -1; dx <= 1; ++dx) {
+        for (int dy = -2; dy <= 2; ++dy) {
+            for (int dx = -2; dx <= 2; ++dx) {
+                if (dx != 0 && dy != 0) continue;
+                const int px = seed.x + dx;
+                const int py = seed.y + dy;
+                if (px >= 0 && px < w && py >= 0 && py < h) {
+                    vis.at(py, px, 0) = 0;
+                    vis.at(py, px, 1) = 255;
+                    vis.at(py, px, 2) = 0;
+                }
+            }
+        }
+    }
+
+    return vis;
+}
+
+Image MotionDetectionPipeline::renderParallaxOverlay(
+    const Image& referenceFrame,
+    const ParallaxRigidityResult& rigidity,
+    const std::vector<PixelCoord>& staticRefPixels,
+    float overlayAlpha) {
+    if (referenceFrame.empty()) {
+        throw std::invalid_argument("Reference frame must not be empty.");
+    }
+
+    const int w = referenceFrame.width;
+    const int h = referenceFrame.height;
+    if (rigidity.movingMask.size() != static_cast<size_t>(w) * h) {
+        throw std::invalid_argument("Parallax movingMask size does not match referenceFrame.");
+    }
+
+    const float alpha = std::clamp(overlayAlpha, 0.0f, 1.0f);
+    const float invAlpha = 1.0f - alpha;
+
+    Image vis(w, h, 3);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const uint8_t r = referenceFrame.at(y, x, 0);
+            const uint8_t g = (referenceFrame.channels >= 3) ? referenceFrame.at(y, x, 1) : r;
+            const uint8_t b = (referenceFrame.channels >= 3) ? referenceFrame.at(y, x, 2) : r;
+
+            const size_t idx = static_cast<size_t>(y) * w + x;
+            if (rigidity.movingMask[idx]) {
+                // Highlight Stage 4 pre-cut moving pixels in yellow (255, 220, 0)
+                vis.at(y, x, 0) = static_cast<uint8_t>(std::min(255.0f, invAlpha * r + alpha * 255.0f));
+                vis.at(y, x, 1) = static_cast<uint8_t>(std::min(255.0f, invAlpha * g + alpha * 220.0f));
+                vis.at(y, x, 2) = static_cast<uint8_t>(invAlpha * b);
+            } else {
+                vis.at(y, x, 0) = r;
+                vis.at(y, x, 1) = g;
+                vis.at(y, x, 2) = b;
+            }
+        }
+    }
+
+    // Draw small green crosshairs at the verified static seed coordinates
+    for (const auto& seed : staticRefPixels) {
+        for (int dy = -2; dy <= 2; ++dy) {
+            for (int dx = -2; dx <= 2; ++dx) {
                 if (dx != 0 && dy != 0) continue;
                 const int px = seed.x + dx;
                 const int py = seed.y + dy;

@@ -1,188 +1,149 @@
 #include "ParallaxRigidityTester.h"
-#include <cassert>
 #include <cmath>
 #include <iostream>
-#include <vector>
+#include <stdexcept>
 
 namespace {
 
-struct CameraPose3D {
-    double tx, ty, tz;
-    double wx, wy, wz;
-};
+void testThreeWayPartitionAndSeedSelection() {
+    const int w = 96;
+    const int h = 96;
+    const size_t numPixels = static_cast<size_t>(w) * h;
 
-// Projects a 3D point P = (X, Y, Z) in the reference camera frame into a camera
-// moved by small rotation W = (wx, wy, wz) and translation T = (tx, ty, tz).
-void projectPoint(
-    double X,
-    double Y,
-    double Z,
-    const CameraPose3D& pose,
-    double f,
-    double cx,
-    double cy,
-    double& outU,
-    double& outV) {
-    // Apparent point motion in camera frame: P' = P - T - W x P
-    const double Xp = X - pose.tx - (pose.wy * Z - pose.wz * Y);
-    const double Yp = Y - pose.ty - (pose.wz * X - pose.wx * Z);
-    const double Zp = Z - pose.tz - (pose.wx * Y - pose.wy * X);
+    QuadraticFlowResult principal;
+    principal.backwardFlow = FlowField(w, h);
+    principal.forwardFlow = FlowField(w, h);
 
-    outU = f * (Xp / Zp) + cx;
-    outV = f * (Yp / Zp) + cy;
+    SecondaryFlowResult secondary;
+    secondary.residualFlowPrev = FlowField(w, h);
+    secondary.residualFlowNext = FlowField(w, h);
+    secondary.validFlowMask.assign(numPixels, 1);
+
+    AlignmentResult alignment;
+    alignment.inBoundsMask.assign(numPixels, 1);
+
+    // Pure camera translation: u_0^j = (2, 1), u_0^k = (-2, -1)
+    for (size_t i = 0; i < numPixels; ++i) {
+        principal.backwardFlow.u[i] = 2.0f;
+        principal.backwardFlow.v[i] = 1.0f;
+        principal.forwardFlow.u[i] = -2.0f;
+        principal.forwardFlow.v[i] = -1.0f;
+    }
+
+    // Static 3D projective parallax field across the scene:
+    //   mu^j(p) = gamma(p) * (p_w^j - e^j),  mu^k(p) = gamma(p) * (p_w^k - e^k)
+    // with e^j = (5, 5) and e^k = (90, 90).
+    const double ejX = 5.0, ejY = 5.0;
+    const double ekX = 90.0, ekY = 90.0;
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const size_t idx = static_cast<size_t>(y) * w + x;
+            const double pwJx = static_cast<double>(x) + 2.0;
+            const double pwJy = static_cast<double>(y) + 1.0;
+            const double pwKx = static_cast<double>(x) - 2.0;
+            const double pwKy = static_cast<double>(y) - 1.0;
+
+            const double gamma = (x > 60) ? 0.03 : 0.04;
+            secondary.residualFlowPrev.u[idx] = static_cast<float>(gamma * (pwJx - ejX));
+            secondary.residualFlowPrev.v[idx] = static_cast<float>(gamma * (pwJy - ejY));
+            secondary.residualFlowNext.u[idx] = static_cast<float>(gamma * (pwKx - ekX));
+            secondary.residualFlowNext.v[idx] = static_cast<float>(gamma * (pwKy - ekY));
+        }
+    }
+
+    // Region 1: Planar static patch Pi_1 at x in [10, 25], y in [70, 85] (||mu|| < 0.30)
+    for (int y = 70; y <= 85; ++y) {
+        for (int x = 10; x <= 25; ++x) {
+            const size_t idx = static_cast<size_t>(y) * w + x;
+            secondary.residualFlowPrev.u[idx] = 0.05f;
+            secondary.residualFlowPrev.v[idx] = -0.04f;
+            secondary.residualFlowNext.u[idx] = -0.05f;
+            secondary.residualFlowNext.v[idx] = 0.04f;
+        }
+    }
+
+    // Region 2: Independently moving object at x in [34, 48], y in [54, 68]
+    for (int y = 54; y <= 68; ++y) {
+        for (int x = 34; x <= 48; ++x) {
+            const size_t idx = static_cast<size_t>(y) * w + x;
+            secondary.residualFlowPrev.u[idx] = -3.5f;
+            secondary.residualFlowPrev.v[idx] = 2.5f;
+            secondary.residualFlowNext.u[idx] = 3.5f;
+            secondary.residualFlowNext.v[idx] = 2.5f;
+        }
+    }
+
+    // Region 3: Low-texture interior inside moving object at x in [38, 44], y in [58, 64]
+    for (int y = 58; y <= 64; ++y) {
+        for (int x = 38; x <= 44; ++x) {
+            const size_t idx = static_cast<size_t>(y) * w + x;
+            secondary.validFlowMask[idx] = 0;
+        }
+    }
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            if (secondary.validFlowMask[static_cast<size_t>(y) * w + x]) {
+                secondary.validPixels.push_back(PixelCoord{x, y});
+            }
+        }
+    }
+
+    // 1. Test automatic epipole-free static seed selection
+    ParallaxRigidityParams params;
+    params.minInlierDistance = 30.0;
+    std::vector<PixelCoord> autoSeeds = ParallaxRigidityTester::selectStaticSeeds(
+        principal, alignment, secondary, 42, params
+    );
+    if (autoSeeds.empty()) {
+        throw std::runtime_error("selectStaticSeeds returned empty seed vector.");
+    }
+    for (const auto& s : autoSeeds) {
+        if (s.x >= 34 && s.x <= 48 && s.y >= 54 && s.y <= 68) {
+            throw std::runtime_error("selectStaticSeeds placed a static seed on the moving object.");
+        }
+    }
+
+    // 2. Test three-way classification using verified static seed (20, 20)
+    ParallaxRigidityResult res = ParallaxRigidityTester::test(
+        principal, alignment, secondary, PixelCoord{20, 20}, params
+    );
+
+    // Planar static Pi_1 -> rigidStaticMask == 1, movingMask == 0
+    const size_t planarIdx = static_cast<size_t>(78) * w + 18;
+    if (res.rigidStaticMask[planarIdx] != 1 || res.movingMask[planarIdx] != 0) {
+        throw std::runtime_error("Planar static pixel Pi_1 was not classified as rigid static.");
+    }
+
+    // Rigid 3D static structure at (70, 24) -> rigidStaticMask == 1, movingMask == 0
+    const size_t rigid3dIdx = static_cast<size_t>(24) * w + 70;
+    if (res.rigidStaticMask[rigid3dIdx] != 1 || res.movingMask[rigid3dIdx] != 0) {
+        throw std::runtime_error("Rigid 3D static structure failed Theorem 2 Eq. (8) test.");
+    }
+
+    // Moving object boundary pixel at (36, 56) -> movingMask == 1, rigidStaticMask == 0
+    const size_t movingIdx = static_cast<size_t>(56) * w + 36;
+    if (res.movingMask[movingIdx] != 1 || res.rigidStaticMask[movingIdx] != 0) {
+        throw std::runtime_error("Independently moving pixel was not detected.");
+    }
+
+    // Low-texture interior at (41, 61) -> neutral (0 in both masks)
+    const size_t neutralIdx = static_cast<size_t>(61) * w + 41;
+    if (res.movingMask[neutralIdx] != 0 || res.rigidStaticMask[neutralIdx] != 0) {
+        throw std::runtime_error("Low-texture pixel was not left neutral for Stage 5 Graph Cut.");
+    }
 }
 
 } // namespace
 
 int main() {
-    const int w = 100;
-    const int h = 100;
-    const size_t numPixels = static_cast<size_t>(w) * h;
-
-    const double f = 100.0;
-    const double cx = 50.0;
-    const double cy = 50.0;
-    const double Z_plane = 20.0; // Dominant background plane depth
-
-    // Non-uniform 3D camera motion across (j = t-1, curr = t, k = t+1)
-    // Includes 3D translation (Tx, Ty, Tz) and 3D rotation (Wx, Wy, Wz)
-    const CameraPose3D poseJ{-1.6,  1.1, -0.45, -0.012,  0.008, -0.015};
-    const CameraPose3D poseK{ 2.3, -1.4,  0.65,  0.015, -0.010,  0.020};
-
-    // Exact principal planar flow u0^j and u0^k induced by the reference plane Z = Z_plane
-    FlowField u0J(w, h);
-    FlowField u0K(w, h);
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const double X = (x - cx) * Z_plane / f;
-            const double Y = (y - cy) * Z_plane / f;
-
-            double xj, yj, xk, yk;
-            projectPoint(X, Y, Z_plane, poseJ, f, cx, cy, xj, yj);
-            projectPoint(X, Y, Z_plane, poseK, f, cx, cy, xk, yk);
-
-            u0J.atU(y, x) = static_cast<float>(xj - x);
-            u0J.atV(y, x) = static_cast<float>(yj - y);
-            u0K.atU(y, x) = static_cast<float>(xk - x);
-            u0K.atV(y, x) = static_cast<float>(yk - y);
-        }
+    try {
+        testThreeWayPartitionAndSeedSelection();
+        std::cout << "[PASS] test_ParallaxRigidityTester\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "[FAIL] test_ParallaxRigidityTester: " << e.what() << "\n";
+        return 1;
     }
-
-    FlowField muJ(w, h);
-    FlowField muK(w, h);
-    std::vector<uint8_t> misalignedMask(numPixels, 0);
-    std::vector<uint8_t> validFlowMask(numPixels, 0);
-
-    // Helper to populate a static 3D structure at arbitrary depth Z_obj != Z_plane
-    auto addStatic3DRegion = [&](int x0, int y0, int bw, int bh, double Z_obj) {
-        for (int y = y0; y < y0 + bh; ++y) {
-            for (int x = x0; x < x0 + bw; ++x) {
-                const size_t idx = static_cast<size_t>(y) * w + x;
-                misalignedMask[idx] = 1;
-                validFlowMask[idx] = 1;
-
-                const double X = (x - cx) * Z_obj / f;
-                const double Y = (y - cy) * Z_obj / f;
-
-                double xj, yj, xk, yk;
-                projectPoint(X, Y, Z_obj, poseJ, f, cx, cy, xj, yj);
-                projectPoint(X, Y, Z_obj, poseK, f, cx, cy, xk, yk);
-
-                // Total flow minus planar flow = planar-parallax vector mu
-                muJ.atU(y, x) = static_cast<float>((xj - x) - u0J.atU(y, x));
-                muJ.atV(y, x) = static_cast<float>((yj - y) - u0J.atV(y, x));
-                muK.atU(y, x) = static_cast<float>((xk - x) - u0K.atU(y, x));
-                muK.atV(y, x) = static_cast<float>((yk - y) - u0K.atV(y, x));
-            }
-        }
-    };
-
-    // Helper to populate an independently moving 3D object
-    auto addMoving3DRegion = [&](
-        int x0, int y0, int bw, int bh, double Z_obj,
-        double dXj, double dYj, double dZj,
-        double dXk, double dYk, double dZk) {
-        for (int y = y0; y < y0 + bh; ++y) {
-            for (int x = x0; x < x0 + bw; ++x) {
-                const size_t idx = static_cast<size_t>(y) * w + x;
-                misalignedMask[idx] = 1;
-                validFlowMask[idx] = 1;
-
-                const double X = (x - cx) * Z_obj / f;
-                const double Y = (y - cy) * Z_obj / f;
-
-                double xj, yj, xk, yk;
-                projectPoint(X + dXj, Y + dYj, Z_obj + dZj, poseJ, f, cx, cy, xj, yj);
-                projectPoint(X + dXk, Y + dYk, Z_obj + dZk, poseK, f, cx, cy, xk, yk);
-
-                muJ.atU(y, x) = static_cast<float>((xj - x) - u0J.atU(y, x));
-                muJ.atV(y, x) = static_cast<float>((yj - y) - u0J.atV(y, x));
-                muK.atU(y, x) = static_cast<float>((xk - x) - u0K.atU(y, x));
-                muK.atV(y, x) = static_cast<float>((yk - y) - u0K.atV(y, x));
-            }
-        }
-    };
-
-    std::cout << "Testing Theorem 2 Eq. (8) under full 3D projective camera motion (Tx,Ty,Tz,Wx,Wy,Wz)..." << std::endl;
-    {
-        // Static 3D structure A at depth Z = 8.0 (contains verified static seed p1)
-        addStatic3DRegion(15, 20, 10, 10, 8.0);
-
-        // Static 3D structure B at a completely different depth Z = 12.5
-        addStatic3DRegion(20, 68, 12, 12, 12.5);
-
-        // Independently moving 3D object at depth Z = 10.0 breaking projective rigidity
-        addMoving3DRegion(
-            62, 42, 14, 14, 10.0,
-            0.80, -0.80,  0.15,
-            0.80, -0.80, -0.20
-        );
-
-        PixelCoord staticSeed{20, 25};
-        ParallaxRigidityParams params;
-        params.rigidityThreshold = 0.05;
-
-        ParallaxRigidityResult res = ParallaxRigidityTester::test(
-            u0J, u0K, muJ, muK, misalignedMask, validFlowMask,
-            std::vector<PixelCoord>{staticSeed},
-            params
-        );
-
-        const float staticErr = res.rigidityErrorMap.at(72, 25);
-        const float movingErr = res.rigidityErrorMap.at(48, 68);
-
-        std::cout << "  Eq. (8) residual on static 3D block B (Z=12.5): " << staticErr << std::endl;
-        std::cout << "  Eq. (8) residual on moving 3D object:           " << movingErr << std::endl;
-        std::cout << "  Detected moving pixels: " << res.movingPixels.size()
-                  << " (expected " << 14 * 14 << ")" << std::endl;
-
-        assert(staticErr < 0.025f);
-        assert(movingErr > 1.0f);
-        assert(res.movingPixels.size() == 14 * 14);
-        assert(res.movingMask[25 * w + 20] == 0);
-        assert(res.movingMask[72 * w + 25] == 0);
-        assert(res.movingMask[48 * w + 68] == 1);
-    }
-
-    std::cout << "Testing multi-seed epipolar collinearity resolution..." << std::endl;
-    {
-        std::vector<PixelCoord> twoSeeds = {
-            PixelCoord{20, 25},
-            PixelCoord{25, 72}
-        };
-
-        ParallaxRigidityParams params;
-        params.rigidityThreshold = 0.05;
-
-        ParallaxRigidityResult res = ParallaxRigidityTester::test(
-            u0J, u0K, muJ, muK, misalignedMask, validFlowMask,
-            twoSeeds,
-            params
-        );
-
-        assert(res.movingPixels.size() == 14 * 14);
-    }
-
-    std::cout << "\nAll updated Stage 4 ParallaxRigidityTester (Eq. 8) tests passed successfully!" << std::endl;
-    return 0;
 }

@@ -32,6 +32,7 @@ struct CliOptions {
     float overlayAlpha = 0.45f;
     int numThreads = 0;
     bool writeOverlay = true;
+    bool writeParallax = true;
     bool showHelp = false;
 };
 
@@ -51,7 +52,8 @@ void printUsage(const char* progName) {
         << "      --lambda <f>            Stage 5 Graph Cut smoothness weight (default: 16.0)\n"
         << "      --moving-weight <f>     Stage 5 moving seed unary capacity (default: 18.0)\n"
         << "      --static-prior <f>      Stage 5 neutral pixel static prior (default: 0.02)\n"
-        << "      --overlay-alpha <f>     Red tint blend factor in [0, 1] (default: 0.45)\n"
+        << "      --overlay-alpha <f>     Mask tint blend factor in [0, 1] (default: 0.45)\n"
+        << "      --no-parallax           Skip writing pre-cut Stage 4 parallax masks and overlays\n"
         << "      --no-overlay            Write only binary masks (skip RGB overlay images)\n"
         << "  -h, --help                  Show this help message\n";
 }
@@ -130,6 +132,8 @@ CliOptions parseArgs(int argc, char* argv[]) {
                 std::stod(requireNextArg(argc, argv, i, arg));
         } else if (arg == "--overlay-alpha") {
             opts.overlayAlpha = std::stof(requireNextArg(argc, argv, i, arg));
+        } else if (arg == "--no-parallax") {
+            opts.writeParallax = false;
         } else if (arg == "--no-overlay") {
             opts.writeOverlay = false;
         } else {
@@ -252,6 +256,39 @@ int main(int argc, char* argv[]) {
                 const double elapsedMs =
                     std::chrono::duration<double, std::milli>(tEnd - tStart).count();
 
+                // 1. Pre-cut Stage 4 parallax rigidity test outputs
+                if (opts.writeParallax) {
+                    const fs::path parallaxMaskPath =
+                        fs::path(opts.outputDir) / formatFrameFilename("parallax_mask", centerIdx, ".png");
+                    Image parallaxMaskImg = MotionDetectionPipeline::renderParallaxMask(
+                        result.rigidity,
+                        frameW,
+                        frameH
+                    );
+                    if (!ImageSequenceReader::writeImage(parallaxMaskPath.string(), parallaxMaskImg)) {
+                        throw std::runtime_error(
+                            "Failed to write parallax mask to '" + parallaxMaskPath.string() + "'."
+                        );
+                    }
+
+                    if (opts.writeOverlay) {
+                        const fs::path parallaxOverlayPath =
+                            fs::path(opts.outputDir) / formatFrameFilename("parallax_overlay", centerIdx, ".png");
+                        Image parallaxOverlayImg = MotionDetectionPipeline::renderParallaxOverlay(
+                            frames[centerIdx],
+                            result.rigidity,
+                            result.usedStaticSeeds,
+                            std::max(opts.overlayAlpha, 0.65f)
+                        );
+                        if (!ImageSequenceReader::writeImage(parallaxOverlayPath.string(), parallaxOverlayImg)) {
+                            throw std::runtime_error(
+                                "Failed to write parallax overlay to '" + parallaxOverlayPath.string() + "'."
+                            );
+                        }
+                    }
+                }
+
+                // 2. Final Stage 5 Graph Cut segmentation outputs
                 const fs::path maskPath =
                     fs::path(opts.outputDir) / formatFrameFilename("mask", centerIdx, ".png");
                 Image maskImg = MotionDetectionPipeline::renderBinaryMask(
