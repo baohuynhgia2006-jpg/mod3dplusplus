@@ -534,9 +534,14 @@ ParallaxRigidityResult ParallaxRigidityTester::test(
                         const double scaleNorm = std::max(1.0, 0.5 * (std::fabs(ratioJ) + std::fabs(ratioK)));
                         bestEq8Error = std::fabs(ratioJ - ratioK) / scaleNorm;
                     } else {
-                        const double perpNumJ = std::fabs(numJ) / normJ;
-                        const double perpNumK = std::fabs(numK) / normK;
-                        bestCollinearOffEpipolar = std::max(perpNumJ, perpNumK);
+                        const double perpSignedJ = numJ / normJ;
+                        const double perpSignedK = numK / normK;
+                        if (perpSignedJ * perpSignedK < 0.0) {
+                            bestCollinearOffEpipolar =
+                                std::min(std::fabs(perpSignedJ), std::fabs(perpSignedK));
+                        } else {
+                            bestCollinearOffEpipolar = 0.0;
+                        }
                     }
                 }
             }
@@ -546,8 +551,10 @@ ParallaxRigidityResult ParallaxRigidityTester::test(
                 result.rigidityErrorMap.at(y, x) = static_cast<float>(bestEq8Error);
                 isMoving = (bestEq8Error > params.rigidityThreshold);
             } else if (bestMinPerpDenom >= 0.0) {
+                const double effectiveCollinearThresh =
+                    params.collinearMotionThreshold * std::max(1.0, params.rigidityThreshold / 0.25);
                 result.rigidityErrorMap.at(y, x) = static_cast<float>(bestCollinearOffEpipolar);
-                isMoving = (bestCollinearOffEpipolar > params.collinearMotionThreshold);
+                isMoving = (bestCollinearOffEpipolar > effectiveCollinearThresh);
             }
 
             if (isMoving) {
