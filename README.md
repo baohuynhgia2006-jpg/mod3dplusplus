@@ -11,7 +11,7 @@ This formulation works well when the 3D scene is far away from the camera, or th
 
 Unfortunately, when the camera is sufficiently close to the 3D scene containing a lot of objects such that a single plane cannot accurately describe the scene, the above formulation naturally fails. Notably, parallax can quickly degrade our ability to detect motion objects because this formulation wrongly assumes parallax situations to be the same as motion. 
 
-We can remedy this problem by using multiple planes. First we use the 2D parametric formulation to align the Reference Image and the Inspection Image. We then mask the areas that are not aligned. We apply 2D parametric alignment on the areas that are not aligned. We then subtract the result of the previous 2D parametric alignment from the current 2D parametric alignment on the misaligned area to obtain the parallax vector. We then use the following test to determine whether a point in the image is independently moving or the result of parallax. 
+We can remedy this problem by using multiple planes. First we use the 2D parametric formulation to align the Reference Image and the Inspection Image. We then perform a dense residual optical flow on the the pairs of aligned images. Subtracting from the dense residual optical flow the 2D parametric optical flow of the previous alignment yields the parallax vector. We then use the following test to determine whether a point in the image is independently moving or the result of parallax. 
 
 $$ \frac{\vec{\mu}_2^{j^T} \left( \Delta \vec{p}_w \right)^j_\perp}{\vec{\mu}_1^{j^T} \left( \Delta \vec{p}_w \right)^j_\perp} - \frac{\vec{\mu}_2^{k^T} \left( \Delta \vec{p}_w \right)^k_\perp}{\vec{\mu}_1^{k^T} \left( \Delta \vec{p}_w \right)^k_\perp} = 0. $$
 
